@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   deploy:
@@ -31,4 +31,19 @@ jobs:
       - name: Deploy Gradio Space
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        run: python child_voice_studio/deploy_to_hf.py
+        run: python child_voice_studio/deploy_to_hf.py | tee /tmp/hf-deploy.txt
+      - name: Publish app URL back to GitHub
+        run: |
+          DEPLOYED_URL="$(sed -n 's/^DEPLOYED_SPACE=//p' /tmp/hf-deploy.txt | tail -1)"
+          if [ -z "$DEPLOYED_URL" ]; then
+            echo "::error::Deployment did not report a Space URL."
+            exit 1
+          fi
+          printf '# Telugu Voice Studio deployed Space\n\n%s\n\nThis URL reports the published Space, not independently verified audio playback.\n' "$DEPLOYED_URL" > DEPLOYED_TELUGU_APP.md
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add DEPLOYED_TELUGU_APP.md
+          if ! git diff --cached --quiet; then
+            git commit -m 'Record Hugging Face Telugu Voice Studio URL'
+            git push origin HEAD:child-voice-studio-v01
+          fi
