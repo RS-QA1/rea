@@ -1,0 +1,52 @@
+name: Check hosted cartoon child voice Space
+on:
+  push:
+    branches: [child-voice-studio-v01]
+    paths:
+      - ".github/workflows/check-cartoon-child-space.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install 'huggingface_hub==0.36.0'
+      - name: Verify Space SDK, runtime and web UI
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          python - <<'PY'
+          import os,time,urllib.request
+          from huggingface_hub import HfApi
+          api=HfApi(token=os.environ["HF_TOKEN"])
+          owner=api.whoami()["name"]
+          name=f"{owner}/telugu-cartoon-child-voice"
+          info=api.space_info(name)
+          card=info.card_data
+          sdk=card.get("sdk") if isinstance(card,dict) else getattr(card,"sdk",None)
+          assert sdk=="docker",sdk
+          url=f"https://{owner.lower()}-telugu-cartoon-child-voice.hf.space/"
+          for attempt in range(40):
+              stage=str(api.get_space_runtime(name).stage)
+              print("STAGE",stage,"ATTEMPT",attempt+1,flush=True)
+              if stage in ("BUILD_ERROR","RUNTIME_ERROR","CONFIG_ERROR"):
+                  raise RuntimeError(stage)
+              if stage=="RUNNING":
+                  try:
+                      with urllib.request.urlopen(url,timeout=15) as response:
+                          print("HTTP",response.status,flush=True)
+                          if response.status==200:
+                              print("CARTOON_CHILD_APP_READY",url,flush=True)
+                              break
+                  except Exception as exc:
+                      print("HTTP_WAIT",repr(exc)[:150],flush=True)
+              time.sleep(6)
+          else:
+              raise RuntimeError("Space did not become healthy")
+          PY
