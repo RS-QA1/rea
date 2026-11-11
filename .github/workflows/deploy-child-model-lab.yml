@@ -1,0 +1,37 @@
+name: Child-trained XTTS model lab build
+on:
+  push:
+    branches: [child-voice-studio-v01]
+    paths:
+      - "child_model_lab/**"
+      - ".github/workflows/deploy-child-model-lab.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: child-model-lab
+  cancel-in-progress: true
+jobs:
+  child-model-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Validate source files
+        run: python -m py_compile child_model_lab/app.py child_model_lab/deploy.py
+      - name: Build and validate child model Docker image
+        run: |
+          docker build --progress=plain -t child-model-lab child_model_lab
+          docker run --rm child-model-lab python -c 'from TTS.tts.configs.xtts_config import XttsConfig; from TTS.tts.models.xtts import Xtts; print("CHILD_ENGINE_IMPORT_PASS")'
+      - name: Test actual child-trained model generation
+        run: |
+          docker run --rm child-model-lab python -c 'import app,wave,pathlib; a,b,msg=app.generate("Hello! Look at my little dragon!",0.8); p=pathlib.Path(a); assert p.stat().st_size>10000; w=wave.open(a,"rb"); assert w.getnframes()>12000; print("CHILD_MODEL_AUDIO_PASS",w.getnframes(),msg)'
+      - name: Install Hugging Face deployment client
+        run: python -m pip install "huggingface_hub==0.36.0"
+      - name: Deploy confirmed child model
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: python child_model_lab/deploy.py
