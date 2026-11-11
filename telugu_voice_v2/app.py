@@ -14,6 +14,29 @@ MODEL_ID = "ARTPARK-IISc/DhVaani-0.5"
 STORE = Path("/tmp/telugu_voice_v2")
 STORE.mkdir(parents=True, exist_ok=True)
 
+# Built-in voices use generated speech, not third-party human recordings.
+REFERENCE_PRESETS = {"Built-in Telugu female": "female", "Built-in Telugu male": "male", "Upload authorized reference": "upload"}
+SYNTH_REF_TEXT = "నమస్కారం! నా పేరు చిన్నారి. ఈరోజు నేను ఒక చిన్న కథ చెబుతాను."
+
+@lru_cache(maxsize=1)
+def load_preset_engine():
+    import sys
+    from huggingface_hub import snapshot_download
+    folder = snapshot_download("sulabhkatiyar/indic-tiny-tts-telugu", ignore_patterns=["*.safetensors", "samples/*"])
+    if folder not in sys.path:
+        sys.path.insert(0, folder)
+    from indic_tiny_tts import TinyTTSOnnx
+    return TinyTTSOnnx.from_pretrained(folder)
+
+@lru_cache(maxsize=2)
+def synthetic_reference(voice):
+    if voice not in ("female", "male"):
+        raise ValueError("Unknown preset voice")
+    target = STORE / ("synthetic_" + voice + ".wav")
+    engine = load_preset_engine()
+    audio = engine.synthesize(SYNTH_REF_TEXT, voice=voice, speed=1.0)
+    engine.save_wav(audio, str(target))
+    return str(target)
 STYLES = {
     "Natural": 1.00,
     "Playful (faster)": 1.06,
@@ -51,22 +74,28 @@ def load_model():
         ) from exc
     return model, device
 
-def synthesize(text, audio_reference, exact_transcript, style, speed, steps, consent):
-    if not consent:
-        raise gr.Error("Confirm permission to use the reference speaker's voice.")
+def synthesize(text, reference_mode, audio_reference, exact_transcript, style, speed, steps, consent):
+    using_upload = REFERENCE_PRESETS.get(reference_mode) == "upload"
+    if reference_mode not in REFERENCE_PRESETS:
+        raise gr.Error("Select a reference voice")
+    if using_upload and not consent:
+        raise gr.Error("Confirm permission to use the uploaded speaker's voice.")
     text = (text or "").strip()
     exact_transcript = (exact_transcript or "").strip()
     if not text or len(text) > 400:
         raise gr.Error("Enter Telugu dialogue between 1 and 400 characters.")
-    if not exact_transcript or len(exact_transcript) > 500:
-        raise gr.Error("Enter the exact transcript of the reference speech.")
-    if not audio_reference:
-        raise gr.Error("Upload spoken reference audio, not laughter-only audio.")
-    if Path(audio_reference).stat().st_size > 15_000_000:
-        raise gr.Error("Reference exceeds 15 MB.")
+    if using_upload:
+        if not exact_transcript or len(exact_transcript) > 500:
+            raise gr.Error("Enter the exact transcript of the reference speech.")
+        if not audio_reference:
+            raise gr.Error("Upload spoken reference audio, not laughter-only audio.")
+        if Path(audio_reference).stat().st_size > 15_000_000:
+            raise gr.Error("Reference exceeds 15 MB.")
     with tempfile.TemporaryDirectory(dir=STORE) as temp_dir:
         audio_wav = Path(temp_dir) / "reference.wav"
-        convert_audio(audio_reference, audio_wav)
+        reference_source = audio_reference if using_upload else synthetic_reference(REFERENCE_PRESETS[reference_mode])
+        prompt_text = exact_transcript if using_upload else SYNTH_REF_TEXT
+        convert_audio(reference_source, audio_wav)
         info = sf.info(str(audio_wav))
         seconds = info.duration
         if not 3 <= seconds <= 20:
@@ -78,7 +107,7 @@ def synthesize(text, audio_reference, exact_transcript, style, speed, steps, con
                 signal = model.synthesize(
                     text=text,
                     prompt_wav=str(audio_wav),
-                    prompt_text=exact_transcript,
+                    prompt_text=prompt_text,
                     speed=float(speed) * STYLES[style],
                     num_step=int(steps),
                 )
@@ -109,10 +138,11 @@ def diagnostics():
 
 with gr.Blocks(title="Telugu Reference Voice Studio v2") as demo:
     gr.Markdown("# 🎙️ Telugu Reference Voice Studio v2")
-    gr.Markdown("**Enter new dialogue in Telugu and provide a short, permitted speaking reference.** "
+    gr.Markdown("**Choose a built-in synthetic Telugu voice; no upload required.** "
                 "Reference laughter without words cannot establish the speaker's talking voice.")
     with gr.Row():
         with gr.Column():
+            reference_mode = gr.Radio(choices=list(REFERENCE_PRESETS), value="Built-in Telugu female", label="1. Ready-to-use voice preset")
             reference = gr.Audio(sources=["upload"], type="filepath",
                                  label="1. Reference SPEECH (3–20 seconds)")
             reference_text = gr.Textbox(lines=2, label="2. Exact words in that reference speech")
@@ -131,7 +161,7 @@ with gr.Blocks(title="Telugu Reference Voice Studio v2") as demo:
             message = gr.Textbox(label="Status", interactive=False)
             check = gr.Button("Check app dependencies")
             check_output = gr.Textbox(label="Environment", interactive=False)
-    generate.click(synthesize, [text, reference, reference_text, style, speed, steps, consent],
+    generate.click(synthesize, [text, reference_mode, reference, reference_text, style, speed, steps, consent],
                    [preview, download, message], api_name="generate_reference_voice")
     check.click(diagnostics, outputs=check_output)
     gr.Markdown("Model: DhVaani-0.5 · CC BY-NC 4.0. Noncommercial testing only. "
