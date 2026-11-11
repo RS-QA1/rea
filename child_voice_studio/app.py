@@ -1,93 +1,93 @@
-"""Independent CPU-friendly childlike character voice demo (not Sarvam AI)."""
+"""Telugu Dialogue Voice Studio: free baseline and optional Sarvam TTS."""
+import base64
 import os
 import shutil
 import subprocess
 import tempfile
-import wave
-from functools import lru_cache
+import uuid
 from pathlib import Path
 
 import gradio as gr
-from huggingface_hub import hf_hub_download
-from piper import PiperVoice
+from gtts import gTTS
+import requests
 
-VOICE_REPO = "rhasspy/piper-voices"
-VOICES = {
-    "Amy (US English)": "en/en_US/amy/medium/en_US-amy-medium.onnx",
-    "Lessac (US English)": "en/en_US/lessac/medium/en_US-lessac-medium.onnx",
-}
-PRESETS = {
-    "Little storyteller": (4.0, 1.03),
-    "Playful cartoon kid": (6.0, 1.12),
-    "Gentle young character": (2.5, 0.94),
-}
-MODEL_DIR = Path(os.getenv("MODEL_DIR", "models")).resolve()
-OUTPUT_DIR = Path(os.getenv("OUTPUT_DIR", "outputs")).resolve()
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+OUT = Path("outputs")
+OUT.mkdir(exist_ok=True)
+SPEAKERS = ["shreya", "priya", "pooja", "shubh", "rahul", "kavya", "anand", "ritu"]
 
-@lru_cache(maxsize=2)
-def load_voice(name):
-    relative_path = VOICES[name]
-    model = hf_hub_download(repo_id=VOICE_REPO, filename=relative_path, local_dir=MODEL_DIR)
-    hf_hub_download(repo_id=VOICE_REPO, filename=relative_path + ".json", local_dir=MODEL_DIR)
-    return PiperVoice.load(str(model))
-
-def filters(sample_rate, semitones, speed):
-    factor = 2 ** (semitones / 12.0)
-    return (f"asetrate={sample_rate}*{factor:.9f},aresample={sample_rate},"
-            f"atempo={1/factor:.9f},atempo={speed:.9f},alimiter=limit=0.95")
-
-def generate(text, voice_name, preset_name, pitch, speed, use_preset):
-    if not text or not text.strip():
-        raise gr.Error("Enter some text first.")
-    if len(text) > 2500:
-        raise gr.Error("Limit text to 2,500 characters per generation.")
-    if use_preset:
-        pitch, speed = PRESETS[preset_name]
-    if not (0 <= pitch <= 8 and 0.7 <= speed <= 1.5):
-        raise gr.Error("Pitch or speed outside supported range.")
+def generate(dialogue, engine, speaker, pace, youthful):
+    dialogue = (dialogue or "").strip()
+    if not dialogue:
+        raise gr.Error("తెలుగు డైలాగ్ రాయండి / Please enter Telugu dialogue.")
+    if len(dialogue) > 2500:
+        raise gr.Error("Maximum 2500 characters per generation.")
+    name = uuid.uuid4().hex
+    raw = OUT / (name + "_raw.mp3")
     try:
-        voice = load_voice(voice_name)
-    except Exception as exc:
-        raise gr.Error(f"Voice model unavailable: {exc}") from exc
-    with tempfile.TemporaryDirectory() as folder:
-        raw = Path(folder) / "raw.wav"
-        with wave.open(str(raw), "wb") as wav_file:
-            voice.synthesize_wav(text.strip(), wav_file)
-        with wave.open(str(raw), "rb") as wav_file:
-            sample_rate = wav_file.getframerate()
-        output = OUTPUT_DIR / (next(tempfile._get_candidate_names()) + ".wav")
-        if abs(pitch) < 0.01 and abs(speed - 1) < 0.01:
-            shutil.copy2(raw, output)
+        if engine == "Free Telugu voice":
+            gTTS(text=dialogue, lang="te", slow=False).save(str(raw))
         else:
+            key = os.environ.get("SARVAM_API_KEY", "").strip()
+            if not key:
+                raise gr.Error("Sarvam API key is missing. Add SARVAM_API_KEY in Space Settings > Secrets, or use Free Telugu voice.")
+            response = requests.post(
+                "https://api.sarvam.ai/text-to-speech",
+                headers={"api-subscription-key": key, "Content-Type":"application/json"},
+                json={"text": dialogue, "target_language_code":"te-IN",
+                      "model":"bulbul:v3", "speaker":speaker,
+                      "pace":pace, "output_audio_codec":"mp3"},
+                timeout=90,
+            )
+            if not response.ok:
+                raise gr.Error(f"Sarvam returned HTTP {response.status_code}: {response.text[:250]}")
+            audios = response.json().get("audios") or []
+            if not audios:
+                raise gr.Error("Sarvam returned no audio.")
+            raw.write_bytes(base64.b64decode(audios[0]))
+        final = OUT / (name + ".mp3")
+        if youthful:
             ffmpeg = shutil.which("ffmpeg")
             if not ffmpeg:
-                raise gr.Error("Install FFmpeg and restart the app.")
-            result = subprocess.run([
-                ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-i", str(raw),
-                "-af", filters(sample_rate, pitch, speed), str(output)
-            ], capture_output=True, text=True, timeout=120)
-            if result.returncode != 0 or not output.exists() or output.stat().st_size < 128:
-                raise gr.Error("Audio processing failed: " + (result.stderr[-600:] or "Unknown error"))
-    return str(output), str(output), f"{voice_name}; pitch +{pitch:g} semitones; speed {speed:.2f}x."
+                raise gr.Error("FFmpeg missing. Turn off childlike pitch or install FFmpeg.")
+            # Raise pitch ~3 semitones and preserve tempo.
+            f = 2 ** (3 / 12)
+            cmd = [ffmpeg, "-y", "-hide_banner", "-loglevel", "error",
+                   "-i", str(raw), "-af",
+                   f"asetrate=24000*{f:.7f},aresample=24000,atempo={1/f:.7f}",
+                   str(final)]
+            # Force an exact sample rate before altering pitch, to avoid assuming the input file's rate.
+            cmd = [ffmpeg, "-y", "-hide_banner", "-loglevel", "error",
+                   "-i", str(raw), "-af",
+                   f"aresample=24000,asetrate=24000*{f:.7f},aresample=24000,atempo={1/f:.7f}",
+                   str(final)]
+            p = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
+            if p.returncode:
+                raise gr.Error("FFmpeg processing failed: " + p.stderr[-250:])
+        else:
+            shutil.copyfile(raw, final)
+        return str(final), str(final), "Generated. Listen and download below."
+    except gr.Error:
+        raise
+    except Exception as exc:
+        raise gr.Error("Voice generation failed: " + str(exc)[:350]) from exc
 
-with gr.Blocks(title="Child Voice Studio") as demo:
-    gr.Markdown("# Child Voice Studio\nIndependent character voice generation using Piper TTS.")
+with gr.Blocks(title="Telugu Dialogue Voice Studio") as app:
+    gr.Markdown("# 🎙️ Telugu Dialogue Voice Studio\nPaste dialogue in Telugu, generate speech, play it, and download MP3.\n\n*Free voice is a baseline. The Sarvam option needs your API key, set privately as a Space Secret. 'Childlike' is pitch processing, not a genuine child voice.*")
+    dialogue = gr.Textbox(label="తెలుగు డైలాగ్ / Telugu Dialogue", lines=6,
+        value="హాయ్! నా పేరు చింటూ. ఈ రోజు మనం ఒక అద్భుతమైన కథ వినబోతున్నాం!")
     with gr.Row():
-        with gr.Column():
-            script = gr.Textbox(label="Script", lines=7, value="Hey! Guess what? I found a little dragon hiding in our garden!")
-            name = gr.Dropdown(list(VOICES), value="Amy (US English)", label="Base voice")
-            preset = gr.Dropdown(list(PRESETS), value="Little storyteller", label="Character preset")
-            use_preset = gr.Checkbox(label="Use preset pitch and speed", value=True)
-            pitch = gr.Slider(0, 8, value=4, step=0.5, label="Custom pitch (semitones)")
-            speed = gr.Slider(0.7, 1.5, value=1.03, step=0.01, label="Custom speed")
-            button = gr.Button("Generate voice", variant="primary")
-        with gr.Column():
-            audio = gr.Audio(label="Preview", type="filepath")
-            download = gr.File(label="Download WAV")
-            status = gr.Textbox(label="Generation details", interactive=False)
-    button.click(generate, [script, name, preset, pitch, speed, use_preset], [audio, download, status])
-    gr.Markdown("English-only prototype. Childlike voice effects use pitch processing, not child-trained voice models.")
+        engine = gr.Radio(["Free Telugu voice", "Sarvam Bulbul v3 (API key required)"],
+                          value="Free Telugu voice", label="Voice engine")
+        speaker = gr.Dropdown(SPEAKERS, value="shreya", label="Sarvam speaker")
+    with gr.Row():
+        pace = gr.Slider(0.5, 2.0, value=1.0, step=0.05, label="Sarvam speech pace")
+        youthful = gr.Checkbox(label="Childlike pitch effect (experimental)", value=False)
+    go = gr.Button("🎤 Generate Telugu voice", variant="primary")
+    preview = gr.Audio(label="Listen to voice", type="filepath")
+    download = gr.File(label="Download MP3")
+    status = gr.Markdown()
+    go.click(generate, [dialogue, engine, speaker, pace, youthful], [preview,download,status])
+    gr.Markdown("Do not paste API keys in the dialogue box. The free voice requires network access to Google's translation TTS backend.")
 
 if __name__ == "__main__":
-    demo.launch(server_name="0.0.0.0", server_port=int(os.getenv("PORT", "7860")), show_error=True)
+    app.launch(server_name="0.0.0.0", server_port=int(os.environ.get("PORT", 7860)))
