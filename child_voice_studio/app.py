@@ -3,6 +3,8 @@ import os
 import sys
 import uuid
 import re
+import tempfile
+import requests
 import shutil
 import subprocess
 import wave
@@ -99,12 +101,16 @@ DELIVERY_PRESETS = {
     "Whisper-like": {"tempo": 0.90, "pitch": -0.15},
 }
 
+LAUGH_SOURCE_URL = "https://commons.wikimedia.org/wiki/Special:Redirect/file/Four_Years_Old_child_laughing.ogg"
+LAUGH_CREDIT = "Four Years Old child laughing by morgantj (CC BY 3.0, Wikimedia Commons)"
+EVENT = re.compile(r"(\\[(?:giggle|laugh|chuckle|hehe|haha)\\])", re.IGNORECASE)
+
 def interpret_delivery(prompt, preset, text):
-    """Explicit, deterministic prompt controls, not instruction-following speech AI."""
+    """Turn supported instructions into explicit audio events, never spoken ha-ha."""
     p = (prompt or "").lower()
     mood = preset if preset in DELIVERY_PRESETS else "Natural"
     keywords = [
-        ("excited", ("excited", "exciting", "ఉత్సాహ")),
+        ("Excited", ("excited", "exciting", "ఉత్సాహ")),
         ("Playful", ("playful", "naughty", "సరదా")),
         ("Shy", ("shy", "softly", "సిగ్గు")),
         ("Sad", ("sad", "crying", "దుఃఖ", "ఏడుస్తూ")),
@@ -113,24 +119,86 @@ def interpret_delivery(prompt, preset, text):
     ]
     for candidate, needles in keywords:
         if any(word in p for word in needles):
-            mood = "Excited" if candidate == "excited" else candidate
+            mood = candidate
             break
-    # A laugh request is rendered as syllabic *spoken* laughter through TTS.
-    # This model cannot produce a genuine breathy non-speech giggle.
-    laugh = any(word in p for word in
-                ("laugh", "giggle", "chuckle", "hehe", "haha", "నవ్వ"))
-    before = any(word in p for word in ("before", "start", "first", "ముందు"))
-    after = any(word in p for word in ("after", "end", "finish", "తర్వాత", "చివర"))
-    if laugh and not (before or after):
-        after = True
-    marked = re.sub(r"\[(?:giggle|laugh|hehe|haha)\]",
-                    " హి హి హి! ", text, flags=re.IGNORECASE)
-    if laugh and marked == text:
+    laugh = any(w in p for w in ("laugh", "giggle", "chuckle", "hehe", "haha", "నవ్వ"))
+    if laugh and not EVENT.search(text):
+        before = any(w in p for w in ("before", "start", "first", "ముందు"))
+        after = any(w in p for w in ("after", "end", "finish", "తర్వాత", "చివర"))
         if before:
-            marked = "హి హి హి! " + marked
-        if after:
-            marked = marked + " హా హా!"
-    return marked, mood, laugh
+            text = "[giggle] " + text
+        elif after or laugh:
+            text = text + " [giggle]"
+    return text, mood, bool(EVENT.search(text))
+
+def run_ffmpeg(args, timeout=90):
+    p = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y"] + args,
+                       text=True, capture_output=True, timeout=timeout)
+    if p.returncode:
+        raise RuntimeError("Audio processing failed: " + p.stderr[-350:])
+
+def laugh_source(uploaded):
+    if uploaded:
+        candidate = Path(uploaded)
+        if not candidate.is_file() or candidate.stat().st_size > 15_000_000:
+            raise ValueError("Uploaded laugh recording is missing or larger than 15 MB.")
+        return str(candidate), "User-provided laughter recording"
+    cache = OUTPUTS / "licensed_child_giggle.ogg"
+    if not cache.exists() or cache.stat().st_size < 4096:
+        try:
+            response = requests.get(
+                LAUGH_SOURCE_URL, timeout=20,
+                headers={"User-Agent": "TeluguVoiceStudio/0.5 (audio attribution test)"}
+            )
+            response.raise_for_status()
+            if len(response.content) > 5_000_000 or len(response.content) < 4096:
+                raise ValueError("Invalid laugh clip size.")
+            temp = cache.with_suffix(".download")
+            temp.write_bytes(response.content)
+            # Only publish a complete successful download
+            temp.replace(cache)
+        except Exception as exc:
+            raise RuntimeError(
+                "Built-in laugh sample could not be fetched from Wikimedia. "
+                "Upload a permitted giggle recording instead. "
+                + str(exc)[:100]
+            ) from exc
+    return str(cache), LAUGH_CREDIT
+
+def render_acted(text, character, tempo, pitch_offset, pause_cleanup, tuning, laugh_upload):
+    parts = EVENT.split(text)
+    events = [p for p in parts if p and p.strip()]
+    if sum(bool(EVENT.fullmatch(p.strip())) for p in events) > 6:
+        raise ValueError("Maximum 6 laugh markers per dialogue.")
+    if not any(EVENT.fullmatch(p.strip()) for p in events):
+        return render(text, character, tempo, pitch_offset, pause_cleanup, tuning), "No laugh event"
+    source, credit = laugh_source(laugh_upload)
+    with tempfile.TemporaryDirectory(dir=OUTPUTS) as directory:
+        root = Path(directory)
+        segments = []
+        for index, item in enumerate(events):
+            pcm = root / f"{index:02d}.wav"
+            if EVENT.fullmatch(item.strip()):
+                # Separate real non-speech laugh, not TTS syllables.
+                # Select 1.75 seconds of the recorded child's laughter.
+                run_ffmpeg(["-ss", "0.5", "-t", "1.75", "-i", source,
+                            "-af", "aresample=24000,highpass=f=100,"
+                                   "afade=t=in:st=0:d=0.06,afade=t=out:st=1.54:d=0.18,"
+                                   "volume=0.85",
+                            "-ac", "1", "-ar", "24000", "-c:a", "pcm_s16le", str(pcm)])
+            else:
+                spoken = render(item.strip(), character, tempo, pitch_offset, pause_cleanup, tuning)
+                run_ffmpeg(["-i", spoken, "-ac", "1", "-ar", "24000",
+                            "-c:a", "pcm_s16le", str(pcm)])
+            if not pcm.exists() or pcm.stat().st_size < 100:
+                raise RuntimeError("One speech or giggle segment produced no audio.")
+            segments.append(pcm)
+        listing = root / "concat.txt"
+        listing.write_text("".join("file '" + str(p.resolve()).replace("'", "'\\''") + "'\\n" for p in segments), encoding="utf-8")
+        output = OUTPUTS / (uuid.uuid4().hex + "_acted.mp3")
+        run_ffmpeg(["-f", "concat", "-safe", "0", "-i", str(listing),
+                    "-codec:a", "libmp3lame", "-b:a", "160k", str(output)], timeout=150)
+        return str(output), credit
 
 def render(text, character, tempo=1.0, pitch_offset=0.0, pause_cleanup=True, tuning="Natural / clean"):
     text = (text or "").strip()
@@ -174,19 +242,27 @@ def render(text, character, tempo=1.0, pitch_offset=0.0, pause_cleanup=True, tun
         raise RuntimeError("Audio processing failed: " + result.stderr[-300:])
     return str(output)
 
-def from_ui(text, character, tempo, pitch_offset, pause_cleanup, tuning, delivery, acting_prompt):
+def from_ui(text, character, tempo, pitch_offset, pause_cleanup, tuning, delivery, acting_prompt, laugh_upload):
     try:
         prepared, mood, laugh = interpret_delivery(acting_prompt, delivery, text or "")
         style = DELIVERY_PRESETS[mood]
         applied_tempo = max(0.8, min(1.25, tempo * style["tempo"]))
         applied_pitch = max(-2.0, min(2.0, pitch_offset + style["pitch"]))
-        filepath = render(prepared, character, applied_tempo, applied_pitch, pause_cleanup, tuning)
-        info = (f"Delivery: {mood}. Speed {applied_tempo:.2f}x. "
-                + ("Laughter approximated by spoken Telugu syllables, not natural child giggling. " if laugh or "[giggle]" in (text or "").lower() else "")
-                + "Speech engine is not expressive TTS; acting prompt supports preset moods and laugh placement, not arbitrary directions.")
+        if not re.sub(EVENT, "", prepared).strip():
+            raise ValueError("Add spoken Telugu dialogue alongside the laugh.")
+        if len(prepared) > 1200:
+            raise ValueError("Dialogue exceeds 1200 characters.")
+        filepath, credit = render_acted(
+            prepared, character, applied_tempo, applied_pitch,
+            pause_cleanup, tuning, laugh_upload
+        )
+        info = (f"Delivery: {mood}. Speed {applied_tempo:.2f}x. " +
+                (f"Real recorded laughter inserted. Credit: {credit}. " if laugh else "") +
+                "Current Telugu model remains adult-trained. Emotions alter pacing; "
+                "they do not produce native acting or character-matched laughter.")
         return filepath, filepath, info
     except Exception as exc:
-        raise gr.Error(str(exc)[:500]) from exc
+        raise gr.Error(str(exc)[:600]) from exc
 
 with gr.Blocks(title="Telugu Kids Character Voice Studio") as ui:
     gr.Markdown("# 🎙️ తెలుగు పిల్లల వాయిస్ స్టూడియో\n### Paste a Telugu dialogue, select a character, listen and download MP3.")
@@ -219,13 +295,19 @@ with gr.Blocks(title="Telugu Kids Character Voice Studio") as ui:
         placeholder="Excited and playful. Giggle before speaking, then say the line quickly.",
         lines=3,
     )
-    gr.Markdown("You can add `[giggle]` or `[laugh]` inside the dialogue. "
-                "**Important:** laughter is spoken 'హి హి' by the model; it is not a natural child laugh.")
+    gr.Markdown("Add `[giggle]` or `[laugh]` anywhere in the script to insert a real, "
+                "separate recorded laugh. Default sample: [Four Years Old child laughing]"
+                "(https://commons.wikimedia.org/wiki/File:Four_Years_Old_child_laughing.ogg), "
+                "morgantj, CC BY 3.0. Laughter may differ from the spoken character voice.")
+    laugh_upload = gr.Audio(
+        label="Optional: upload a licensed laugh clip matching your character",
+        sources=["upload"], type="filepath")
+
     go = gr.Button("🎤 Generate voice", variant="primary")
     preview = gr.Audio(label="Listen", type="filepath")
     download = gr.File(label="Download MP3")
     note = gr.Textbox(label="Voice info", interactive=False)
-    go.click(from_ui, inputs=[script, character, tempo, pitch, pause_cleanup, tuning, delivery, acting_prompt],
+    go.click(from_ui, inputs=[script, character, tempo, pitch, pause_cleanup, tuning, delivery, acting_prompt, laugh_upload],
              outputs=[preview, download, note], api_name="generate_voice")
     gr.Markdown("Gradio API: `generate_voice` is available through the Space API. "
                 "Model attribution: Indic Tiny TTS Telugu by Sulabh Katiyar; AI4Bharat Rasa dataset (CC BY 4.0). "
