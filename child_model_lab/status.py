@@ -5,7 +5,7 @@ space=f'{api.whoami()["name"]}/child-voice-model-lab'
 info=api.space_info(space)
 card=info.card_data
 sdk=card.get("sdk") if isinstance(card,dict) else getattr(card,"sdk",None)
-print("SDK",sdk,flush=True)
+print("SDK",sdk,"checking refreshed Gradio 5.49.1 deployment",flush=True)
 assert sdk=="docker"
 stage=""
 for attempt in range(45):
