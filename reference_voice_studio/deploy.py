@@ -10,17 +10,17 @@ if not token:
 api = HfApi(token=token)
 owner = api.whoami()["name"]
 space_id = f"{owner}/telugu-reference-voice-studio"
-api.create_repo(repo_id=space_id, repo_type="space", space_sdk="gradio",
+api.create_repo(repo_id=space_id, repo_type="space", space_sdk="docker",
                 private=False, exist_ok=True)
 source = Path(__file__).parent
 with tempfile.TemporaryDirectory() as folder:
     root = Path(folder)
-    for filename in ("app.py", "requirements.txt", "packages.txt"):
+    for filename in ("app.py", "requirements.txt", "Dockerfile"):
         (root / filename).write_bytes((source / filename).read_bytes())
     (root / "README.md").write_text(
-        "---\ntitle: Telugu Reference Voice Studio\nemoji: 🎭\nsdk: gradio\n"
-        "app_file: app.py\npython_version: '3.11'\n"
-        "---\n\nExperimental Telugu reference-conditioned TTS.\n",
+        "---\\ntitle: Telugu Reference Voice Studio\\nemoji: 🎭\\nsdk: docker\\n"
+        "app_port: 7860\\n"
+        "---\\n\\nExperimental Telugu reference-conditioned TTS on a pinned Python environment.\\n",
         encoding="utf-8",
     )
     api.upload_folder(folder_path=str(root), repo_id=space_id,
