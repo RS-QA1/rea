@@ -8,10 +8,7 @@ from pathlib import Path
 from functools import lru_cache
 
 import gradio as gr
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
 from huggingface_hub import snapshot_download
-from pydantic import BaseModel, Field
 
 MODEL_ID = "sulabhkatiyar/indic-tiny-tts-telugu"
 OUTPUTS = Path("/tmp/telugu_voice_outputs")
@@ -78,33 +75,7 @@ def from_ui(text, character, tempo, pitch_offset):
     except Exception as exc:
         raise gr.Error(str(exc)[:500]) from exc
 
-api = FastAPI(title="Independent Telugu Character TTS API", version="0.2")
-class SpeechRequest(BaseModel):
-    text: str = Field(min_length=1, max_length=1200)
-    character: str = "Chinni · playful girl (~6 style)"
-    tempo: float = Field(default=1.0, ge=0.8, le=1.25)
-    pitch_offset: float = Field(default=0.0, ge=-2, le=2)
-
-@api.get("/api/health")
-def health():
-    return {"ok": True, "engine": "indic-tiny-tts-telugu-onnx", "model_loaded": model.cache_info().currsize > 0}
-
-@api.get("/api/voices")
-def voices():
-    return [{"name": name, "base_speaker": p["base"],
-             "age_claim": "stylized only"} for name, p in CHARACTERS.items()]
-
-@api.post("/api/generate")
-def generate(request: SpeechRequest):
-    try:
-        filename = render(request.text, request.character, request.tempo, request.pitch_offset)
-        return FileResponse(filename, media_type="audio/mpeg", filename="telugu-character.mp3")
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:
-        raise HTTPException(status_code=503, detail=f"Voice generation failed: {str(exc)[:200]}") from exc
-
-with gr.Blocks(title="Telugu Kids Character Voice Studio", theme=gr.themes.Soft()) as ui:
+with gr.Blocks(title="Telugu Kids Character Voice Studio") as ui:
     gr.Markdown("# 🎙️ తెలుగు పిల్లల వాయిస్ స్టూడియో\n### Paste a Telugu dialogue, select a character, listen and download MP3.")
     gr.Markdown("**Independent open model — no Sarvam key needed.** Voices are synthetic age-*style* effects, not real six-year-old voices.")
     script = gr.Textbox(label="తెలుగు డైలాగ్ / Telugu dialogue", lines=5,
@@ -122,12 +93,9 @@ with gr.Blocks(title="Telugu Kids Character Voice Studio", theme=gr.themes.Soft(
     note = gr.Textbox(label="Voice info", interactive=False)
     go.click(from_ui, inputs=[script, character, tempo, pitch],
              outputs=[preview, download, note], api_name="generate_voice")
-    gr.Markdown("Open API: `GET /api/voices`, `GET /api/health`, `POST /api/generate`. "
+    gr.Markdown("Gradio API: `generate_voice` is available through the Space API. "
                 "Model attribution: Indic Tiny TTS Telugu by Sulabh Katiyar; AI4Bharat Rasa dataset (CC BY 4.0). "
                 "Use native Telugu script for best pronunciation.")
 
-app = gr.mount_gradio_app(api, ui, path="/")
-
 if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", "7860")))
+    ui.launch(server_name="0.0.0.0", server_port=int(os.getenv("PORT", "7860")), show_error=True)
