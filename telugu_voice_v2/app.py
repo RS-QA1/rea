@@ -21,6 +21,7 @@ BASE_VOICES = {
     "Indic Tiny · Male": ("indic", "male"),
     "Piper · Padmavathi": ("piper", "padmavathi"),
     "Piper · Venkatesh": ("piper", "venkatesh"),
+    "Child-trained XTTS · English (beta)": ("child", "xtts"),
 }
 CHARACTERS = {
     "Natural voice": (0.0, 1.00),
@@ -58,6 +59,11 @@ def load_piper(voice):
     hf_hub_download(repo_id=repo, filename=sub + ".json")
     return PiperVoice.load(path)
 
+@lru_cache(maxsize=1)
+def child_voice_client():
+    from gradio_client import Client
+    return Client("Revankruthi/child-voice-model-lab")
+
 def command(arguments, timeout=90):
     p = subprocess.run(
         ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y"] + arguments,
@@ -68,7 +74,25 @@ def command(arguments, timeout=90):
 
 def synthesize_base(text, selected, destination):
     backend, speaker = BASE_VOICES[selected]
-    if backend == "indic":
+    if backend == "child":
+        if any(0x0C00 <= ord(c) <= 0x0C7F for c in text):
+            raise ValueError("Child-trained XTTS supports English, not Telugu.")
+        try:
+            result = child_voice_client().predict(
+                text, 0.8, api_name="/generate_child_voice")
+            source = result[0] if isinstance(result, (list, tuple)) else result
+            if isinstance(source, dict):
+                source = source.get("path") or source.get("name")
+            source = Path(str(source))
+            if not source.is_file():
+                raise RuntimeError("Child backend returned no WAV.")
+            command(["-i", str(source), "-ac", "1", "-ar", "24000",
+                     "-c:a", "pcm_s16le", str(destination)], timeout=180)
+        except Exception as exc:
+            raise RuntimeError("Child backend is unavailable. "
+                               "Regular Telugu voices remain usable. "
+                               + str(exc)[:200]) from exc
+    elif backend == "indic":
         engine = load_indic()
         audio = engine.synthesize(text, voice=speaker, speed=1.0)
         engine.save_wav(audio, str(destination))
@@ -81,6 +105,8 @@ def synthesize_base(text, selected, destination):
 
 def render_speech(text, voice, pitch, pace, out):
     with tempfile.TemporaryDirectory(dir=STORE) as folder:
+        if voice == "Child-trained XTTS · English (beta)":
+            pitch = 0.0
         raw = Path(folder) / "raw.wav"
         synthesize_base(text, voice, raw)
         # The base voice remains unmodified for natural mode.
@@ -150,7 +176,9 @@ def make_audio(text, voice, character, emotion, speed, laugh_upload, instruction
         raise RuntimeError("Final audio export failed.")
     info = (f"{voice} · {character} · {emotion} · {pace:.2f}×. "
             + ("Recorded laugh inserted. " if laugh_count else "")
-            + "Character effects approximate youth; authentic child-trained voices are not included.")
+            + ("Actual child-speech-trained XTTS English voice (experimental)."
+               if "Child-trained XTTS" in voice else
+               "Telugu character effects approximate youth; not child-trained voices."))
     return str(final), str(final), info
 
 def safe_generate(*args):
@@ -161,14 +189,14 @@ def safe_generate(*args):
     except Exception as exc:
         raise gr.Error("Audio generation failed: " + str(exc)[:500]) from exc
 
-with gr.Blocks(title="Telugu Voice Studio — Free Multi-Engine") as demo:
-    gr.Markdown("# 🎙️ Telugu Voice Studio — Free Multi-Engine")
-    gr.Markdown("**Two free CPU TTS engines, four Telugu base voices.** No Sarvam account, "
-                "gated DhVaani model or paid API required. Real children's speech is not "
-                "guaranteed; youthful presets are mild approximations.")
+with gr.Blocks(title="Telugu and Child Voice Studio") as demo:
+    gr.Markdown("# 🎙️ Telugu + Child Voice Studio")
+    gr.Markdown("Two free Telugu speech engines and an experimental, child-speech-trained "
+                "English model. Child synthesis runs on a separate hosted CPU backend "
+                "and can be slower. Telugu child-trained speech is not available yet.")
     with gr.Row():
         with gr.Column():
-            dialogue = gr.Textbox(label="తెలుగు డైలాగ్ / Telugu dialogue",
+            dialogue = gr.Textbox(label="Dialogue (Telugu or English for the child model)",
                                   lines=5, value="అమ్మా! చూడు! నేను ఒక చిన్న డ్రాగన్‌ని చూశాను!")
             voice = gr.Dropdown(list(BASE_VOICES), value="Indic Tiny · Female",
                                 label="Voice model + speaker")
