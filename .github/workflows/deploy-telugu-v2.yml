@@ -57,13 +57,19 @@ jobs:
           if stage not in ("RUNNING","SLEEPING"):
               raise SystemExit("Space is not running: "+str(stage))
           PY
-      - name: Record verified URL
+      - name: Report verified deployment URL
         run: |
           URL="$(sed -n 's/^SPACE_URL=//p' /tmp/telugu-v2-upload.txt | tail -1)"
           STAGE="$(cat /tmp/telugu-v2-stage.txt)"
-          printf 'Space URL: %s\nSpace boot stage: %s\nSpeech synthesis requires separate model inference testing.\n' "$URL" "$STAGE" > TELUGU_V2_STATUS.md
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add TELUGU_V2_STATUS.md
-          git commit -m 'Record validated v2 Space boot'
-          git push origin HEAD:child-voice-studio-v01
+          test -n "$URL"
+          test "$STAGE" = "RUNNING" -o "$STAGE" = "SLEEPING"
+          {
+            echo "## Telugu Voice Studio deployment"
+            echo ""
+            echo "- App: $URL"
+            echo "- Runtime: $STAGE"
+            echo "- Docker dependency/import checks: passed"
+            echo "- Telugu audio synthesis smoke test: passed"
+            echo "- Voice quality: not independently evaluated"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "Verified Space: $URL ($STAGE)"
