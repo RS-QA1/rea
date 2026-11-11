@@ -1,0 +1,26 @@
+name: Deploy Telugu Reference Voice Studio
+on:
+  push:
+    branches: [child-voice-studio-v01]
+    paths:
+      - "reference_voice_studio/**"
+      - ".github/workflows/deploy-telugu-reference.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  deploy-reference:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Validate Python files
+        run: python -m py_compile reference_voice_studio/app.py reference_voice_studio/deploy.py
+      - name: Install deploy client
+        run: python -m pip install "huggingface_hub>=0.29,<2"
+      - name: Upload independent reference-voice Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: python reference_voice_studio/deploy.py
