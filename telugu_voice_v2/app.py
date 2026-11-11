@@ -21,6 +21,7 @@ BASE_VOICES = {
     "Indic Tiny · Male": ("indic", "male"),
     "Piper · Padmavathi": ("piper", "padmavathi"),
     "Piper · Venkatesh": ("piper", "venkatesh"),
+    "Child-trained XTTS · English (beta)": ("child", "xtts"),
 }
 CHARACTERS = {
     "Natural voice": (0.0, 1.00),
@@ -57,6 +58,11 @@ def load_piper(voice):
     path = hf_hub_download(repo_id=repo, filename=sub)
     hf_hub_download(repo_id=repo, filename=sub + ".json")
     return PiperVoice.load(path)
+
+@lru_cache(maxsize=1)
+def child_voice_client():
+    from gradio_client import Client
+    return Client("Revankruthi/child-voice-model-lab")
 
 def command(arguments, timeout=90):
     p = subprocess.run(
