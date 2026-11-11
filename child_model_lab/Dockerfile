@@ -1,4 +1,4 @@
-FROM python:3.10-slim
+FROM python:3.11-slim
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PORT=7860 HOME=/home/user HF_HOME=/home/user/.cache/huggingface
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg git libsndfile1 espeak-ng ca-certificates && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
