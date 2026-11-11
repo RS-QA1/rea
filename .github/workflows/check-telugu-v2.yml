@@ -1,0 +1,35 @@
+name: Check Hosted Telugu v2
+on:
+  push:
+    branches: [child-voice-studio-v01]
+    paths:
+      - "telugu_voice_v2/status_check.py"
+      - ".github/workflows/check-telugu-v2.yml"
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install lightweight runtime inspector
+        run: python -m pip install 'huggingface_hub==0.36.0'
+      - name: Inspect hosted Docker Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          python telugu_voice_v2/status_check.py || echo "CHECK_FAILED=true" >> "$GITHUB_ENV"
+      - name: Publish factual status in GitHub
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          if [ -f TELUGU_V2_STATUS.md ]; then
+            git add TELUGU_V2_STATUS.md
+            git diff --cached --quiet || (git commit -m 'Record actual v2 Space runtime state' && git push origin HEAD:child-voice-studio-v01)
+          fi
+          test "${CHECK_FAILED:-}" != "true"
