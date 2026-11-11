@@ -4,6 +4,8 @@ import sys
 import uuid
 import shutil
 import subprocess
+import wave
+import numpy as np
 from pathlib import Path
 from functools import lru_cache
 
@@ -35,6 +37,57 @@ def model():
     from indic_tiny_tts import TinyTTSOnnx
     return TinyTTSOnnx.from_pretrained(folder)
 
+def shorten_long_gaps(wav_path):
+    """Shorten only long, low-energy internal pauses; preserve sentence starts/ends."""
+    with wave.open(str(wav_path), "rb") as reader:
+        rate = reader.getframerate()
+        channels = reader.getnchannels()
+        width = reader.getsampwidth()
+        raw_bytes = reader.readframes(reader.getnframes())
+    if width != 2 or channels != 1:
+        return False
+    samples = np.frombuffer(raw_bytes, dtype="<i2").copy()
+    if len(samples) < rate:
+        return False
+    frame = max(1, rate // 100)
+    count = len(samples) // frame
+    if count < 40:
+        return False
+    rms = np.sqrt(np.mean(
+        (samples[:count * frame].astype(np.float32).reshape(count, frame) / 32768.0) ** 2,
+        axis=1
+    ))
+    level = max(0.0025, float(np.percentile(rms, 95)) * 0.065)
+    silence = rms < level
+    spans = []
+    start = None
+    for i, quiet in enumerate(silence):
+        if quiet and start is None:
+            start = i
+        elif not quiet and start is not None:
+            if i - start >= 36 and start > 0 and i < count:
+                spans.append((start * frame, i * frame))
+            start = None
+    if not spans:
+        return False
+    result = []
+    cursor = 0
+    keep = int(rate * 0.18)
+    for left, right in spans:
+        amount = max(0, right - left - keep)
+        remove_left = left + max(0, ((right - left) - amount) // 2)
+        remove_right = remove_left + amount
+        result.append(samples[cursor:remove_left])
+        cursor = remove_right
+    result.append(samples[cursor:])
+    combined = np.concatenate(result)
+    with wave.open(str(wav_path), "wb") as out:
+        out.setnchannels(1)
+        out.setsampwidth(2)
+        out.setframerate(rate)
+        out.writeframes(combined.astype("<i2").tobytes())
+    return True
+
 def render(text, character, tempo=1.0, pitch_offset=0.0, pause_cleanup=True, tuning="Natural / clean"):
     text = (text or "").strip()
     if not text:
@@ -52,6 +105,8 @@ def render(text, character, tempo=1.0, pitch_offset=0.0, pause_cleanup=True, tun
     raw = base.with_suffix(".wav")
     output = base.with_suffix(".mp3")
     engine.save_wav(audio, str(raw))
+    if pause_cleanup:
+        shorten_long_gaps(raw)
     base_factor = profile["pitch"]
     if tuning == "Original / previous pitch" and "experimental" in character:
         legacy = {"Chinni": 1.43, "Bujji": 1.27, "Chintu": 1.54, "Balu": 1.38}
@@ -59,19 +114,13 @@ def render(text, character, tempo=1.0, pitch_offset=0.0, pause_cleanup=True, tun
     factor = base_factor * 2 ** (pitch_offset / 12.0)
     # Pitch and vocal-resonance rise together; there is no claim this creates
     # authentic child anatomy. Audio length remains controllable independently.
-    # Reduce overly long pauses, without noise suppression.
-    pause_filter = (
-        ",silenceremove=start_periods=0:stop_periods=-1:"
-        "stop_duration=0.34:stop_threshold=-43dB:stop_silence=0.14"
-        if pause_cleanup else ""
-    )
     if abs(factor - 1.0) < 0.001 and abs(tempo - 1.0) < 0.001:
         filters = "aresample=24000"
     else:
         filters = (f"aresample=24000,asetrate=24000*{factor:.7f},"
                    f"aresample=24000,atempo={1/factor:.7f},"
                    f"atempo={tempo:.7f}")
-    filters += pause_filter + ",alimiter=limit=0.96"
+    filters += ",alimiter=limit=0.96"
     cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i",
            str(raw), "-af", filters, "-codec:a", "libmp3lame", "-q:a", "3",
            str(output)]
