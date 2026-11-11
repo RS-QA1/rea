@@ -26,10 +26,24 @@ jobs:
         run: |
           docker build --pull --progress=plain -t telugu-voice-v2 telugu_voice_v2
           docker run --rm telugu-voice-v2 python -c 'import gradio,numpy,onnxruntime,huggingface_hub; print("IMPORT_TEST_PASS")'
-      - name: Generate sample Telugu WAV inside Docker (required)
+      - name: Generate actual Telugu audio with both free engines
         run: |
-          docker run --rm telugu-voice-v2 python -c 'import app, pathlib, wave; wav, _, details = app.synthesize("అమ్మా! నమస్కారం!", "Telugu female", "Natural", 1.0); f=pathlib.Path(wav); assert f.exists() and f.stat().st_size > 2048, "Empty WAV"; r=wave.open(wav,"rb"); assert r.getnframes() > r.getframerate()//2; print("SYNTHESIS_SMOKE_PASS", r.getnframes(), details)'
-
+          docker run --rm telugu-voice-v2 python - <<'PY'
+          import app, pathlib, subprocess
+          for voice in ("Indic Tiny · Female", "Piper · Padmavathi"):
+              audio, downloadable, details = app.make_audio(
+                  "అమ్మా! నమస్కారం!", voice, "Natural voice", "Natural", 1.0, None, ""
+              )
+              result = subprocess.run(
+                  ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                   "-of", "default=noprint_wrappers=1:nokey=1", audio],
+                  capture_output=True, text=True, check=True,
+              )
+              duration = float(result.stdout.strip())
+              assert duration > 0.5
+              assert pathlib.Path(audio).stat().st_size > 2048
+              print("AUDIO_SMOKE_PASS", voice, round(duration,2), flush=True)
+          PY
       - name: Install only deployment tool
         run: python -m pip install 'huggingface_hub==0.36.0'
       - name: Upload to new Docker Space
@@ -69,7 +83,7 @@ jobs:
             echo "- App: $URL"
             echo "- Runtime: $STAGE"
             echo "- Docker dependency/import checks: passed"
-            echo "- Telugu audio synthesis smoke test: passed"
+            echo "- Indic Tiny and Piper Telugu synthesis tests: passed"
             echo "- Voice quality: not independently evaluated"
           } >> "$GITHUB_STEP_SUMMARY"
           echo "Verified Space: $URL ($STAGE)"
