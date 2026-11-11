@@ -19,7 +19,7 @@ jobs:
       - name: Validate Python files
         run: python -m py_compile reference_voice_studio/app.py reference_voice_studio/deploy.py
       - name: Check Space dependencies resolve on Python 3.11
-        run: python -m pip install --dry-run --prefer-binary -r reference_voice_studio/requirements.txt
+        run: python -m pip install --dry-run --prefer-binary -r reference_voice_studio/requirements.txt 'gradio[oauth,mcp]==6.31.0' 'uvicorn>=0.14.0' 'websockets>=10.4' spaces
       - name: Install deploy client
         run: python -m pip install "huggingface_hub>=0.29,<2"
       - name: Upload independent reference-voice Space
