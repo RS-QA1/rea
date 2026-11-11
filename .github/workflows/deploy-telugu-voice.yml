@@ -28,6 +28,8 @@ jobs:
           python-version: "3.11"
       - name: Install Hugging Face Hub client
         run: python -m pip install "huggingface_hub>=0.29,<2"
+      - name: Compile app and check syntax
+        run: python -m py_compile child_voice_studio/app.py child_voice_studio/deploy_to_hf.py
       - name: Deploy Gradio Space
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
