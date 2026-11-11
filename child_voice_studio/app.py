@@ -17,10 +17,10 @@ OUTPUTS.mkdir(parents=True, exist_ok=True)
 # These are distinct character sound profiles using two genuine base speakers.
 # They are NOT separate child-trained identities or guaranteed ages.
 CHARACTERS = {
-    "Chinni · playful girl (~6 style)": {"base": "female", "pitch": 1.43, "speed": 1.12},
-    "Bujji · gentle girl (~6 style)": {"base": "female", "pitch": 1.27, "speed": 0.94},
-    "Chintu · energetic boy (~6 style)": {"base": "male", "pitch": 1.54, "speed": 1.17},
-    "Balu · curious boy (~6 style)": {"base": "male", "pitch": 1.38, "speed": 1.00},
+    "Chinni · playful girl (experimental)": {"base": "female", "pitch": 1.13, "speed": 1.07},
+    "Bujji · gentle girl (experimental)": {"base": "female", "pitch": 1.08, "speed": 0.97},
+    "Chintu · energetic boy (experimental)": {"base": "male", "pitch": 1.16, "speed": 1.09},
+    "Balu · curious boy (experimental)": {"base": "male", "pitch": 1.10, "speed": 1.01},
     "Akka · older sister (~12 style)": {"base": "female", "pitch": 1.13, "speed": 1.03},
     "Anna · older brother (~12 style)": {"base": "male", "pitch": 1.22, "speed": 1.06},
     "Adult Telugu female": {"base": "female", "pitch": 1.00, "speed": 1.00},
@@ -35,7 +35,7 @@ def model():
     from indic_tiny_tts import TinyTTSOnnx
     return TinyTTSOnnx.from_pretrained(folder)
 
-def render(text, character, tempo=1.0, pitch_offset=0.0):
+def render(text, character, tempo=1.0, pitch_offset=0.0, pause_cleanup=True, tuning="Natural / clean"):
     text = (text or "").strip()
     if not text:
         raise ValueError("Enter Telugu dialogue.")
@@ -52,12 +52,26 @@ def render(text, character, tempo=1.0, pitch_offset=0.0):
     raw = base.with_suffix(".wav")
     output = base.with_suffix(".mp3")
     engine.save_wav(audio, str(raw))
-    factor = profile["pitch"] * 2 ** (pitch_offset / 12.0)
+    base_factor = profile["pitch"]
+    if tuning == "Original / previous pitch" and "experimental" in character:
+        legacy = {"Chinni": 1.43, "Bujji": 1.27, "Chintu": 1.54, "Balu": 1.38}
+        base_factor = next((v for n, v in legacy.items() if character.startswith(n)), base_factor)
+    factor = base_factor * 2 ** (pitch_offset / 12.0)
     # Pitch and vocal-resonance rise together; there is no claim this creates
     # authentic child anatomy. Audio length remains controllable independently.
-    filters = (f"aresample=24000,asetrate=24000*{factor:.7f},"
-               f"aresample=24000,atempo={1/factor:.7f},"
-               f"atempo={tempo:.7f},alimiter=limit=0.96")
+    # Reduce overly long pauses, without noise suppression.
+    pause_filter = (
+        ",silenceremove=start_periods=0:stop_periods=-1:"
+        "stop_duration=0.34:stop_threshold=-43dB:stop_silence=0.14"
+        if pause_cleanup else ""
+    )
+    if abs(factor - 1.0) < 0.001 and abs(tempo - 1.0) < 0.001:
+        filters = "aresample=24000"
+    else:
+        filters = (f"aresample=24000,asetrate=24000*{factor:.7f},"
+                   f"aresample=24000,atempo={1/factor:.7f},"
+                   f"atempo={tempo:.7f}")
+    filters += pause_filter + ",alimiter=limit=0.96"
     cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i",
            str(raw), "-af", filters, "-codec:a", "libmp3lame", "-q:a", "3",
            str(output)]
@@ -67,31 +81,39 @@ def render(text, character, tempo=1.0, pitch_offset=0.0):
         raise RuntimeError("Audio processing failed: " + result.stderr[-300:])
     return str(output)
 
-def from_ui(text, character, tempo, pitch_offset):
+def from_ui(text, character, tempo, pitch_offset, pause_cleanup, tuning):
     try:
-        filepath = render(text, character, tempo, pitch_offset)
-        return filepath, filepath, ("Generated using our own API and an open Telugu model. "
-                                    "These are character-style approximations, not trained child voices.")
+        filepath = render(text, character, tempo, pitch_offset, pause_cleanup, tuning)
+        return filepath, filepath, ("Audio v0.4 — " + tuning + ". Adult-trained base voice. " + ("Long-pause cleanup on." if pause_cleanup else "Original pauses preserved."))
     except Exception as exc:
         raise gr.Error(str(exc)[:500]) from exc
 
 with gr.Blocks(title="Telugu Kids Character Voice Studio") as ui:
     gr.Markdown("# 🎙️ తెలుగు పిల్లల వాయిస్ స్టూడియో\n### Paste a Telugu dialogue, select a character, listen and download MP3.")
-    gr.Markdown("**Independent open model — no Sarvam key needed.** Voices are synthetic age-*style* effects, not real six-year-old voices.")
+    gr.Markdown("**Independent open model — no Sarvam key needed.** Child profiles are experimental processing of adult voices, not genuine six-year-old voices.")
     script = gr.Textbox(label="తెలుగు డైలాగ్ / Telugu dialogue", lines=5,
         value="హాయ్! నా పేరు చింటూ! అమ్మా, చూడూ! నేను ఒక చిన్న డ్రాగన్‌ని చూశాను!")
     with gr.Row():
-        character = gr.Dropdown(choices=list(CHARACTERS), value="Chintu · energetic boy (~6 style)",
+        character = gr.Dropdown(choices=list(CHARACTERS), value="Chintu · energetic boy (experimental)",
                                 label="Character — choose boy, girl, or older voice")
         tempo = gr.Slider(minimum=0.8, maximum=1.25, value=1.0, step=0.05,
                           label="Speaking speed")
         pitch = gr.Slider(minimum=-2, maximum=2, value=0, step=0.5,
                           label="Fine pitch adjustment (semitones)")
+    with gr.Row():
+        tuning = gr.Radio(
+            choices=["Natural / clean", "Original / previous pitch"],
+            value="Natural / clean",
+            label="Child voice tuning — compare natural against original",
+        )
+        pause_cleanup = gr.Checkbox(
+            label="Shorten long silent gaps (optional)", value=True
+        )
     go = gr.Button("🎤 Generate voice", variant="primary")
     preview = gr.Audio(label="Listen", type="filepath")
     download = gr.File(label="Download MP3")
     note = gr.Textbox(label="Voice info", interactive=False)
-    go.click(from_ui, inputs=[script, character, tempo, pitch],
+    go.click(from_ui, inputs=[script, character, tempo, pitch, pause_cleanup, tuning],
              outputs=[preview, download, note], api_name="generate_voice")
     gr.Markdown("Gradio API: `generate_voice` is available through the Space API. "
                 "Model attribution: Indic Tiny TTS Telugu by Sulabh Katiyar; AI4Bharat Rasa dataset (CC BY 4.0). "
