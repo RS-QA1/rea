@@ -75,78 +75,33 @@ def load_model():
     return model, device
 
 def synthesize(text, reference_mode, audio_reference, exact_transcript, style, speed, steps, consent):
-    using_upload = REFERENCE_PRESETS.get(reference_mode) == "upload"
-    if reference_mode not in REFERENCE_PRESETS:
-        raise gr.Error("Select a reference voice")
-    if using_upload and not consent:
-        raise gr.Error("Confirm permission to use the uploaded speaker's voice.")
+    """Ungated synthesis for all built-in presets; no DhVaani requests."""
     text = (text or "").strip()
-    exact_transcript = (exact_transcript or "").strip()
     if not text or len(text) > 400:
         raise gr.Error("Enter Telugu dialogue between 1 and 400 characters.")
-    # Ungated built-in Telugu voices use their own ONNX inference directly.
-    # Do NOT fetch the gated DhVaani model unless custom cloning was selected.
-    if not using_upload:
-        try:
-            engine = load_preset_engine()
-            speaker = REFERENCE_PRESETS[reference_mode]
-            pace = float(speed) * STYLES[style]
-            signal = engine.synthesize(text, voice=speaker, speed=pace)
-            target = STORE / (str(uuid.uuid4()) + "_preset.wav")
-            engine.save_wav(signal, str(target))
-            if not target.exists() or target.stat().st_size < 512:
-                raise RuntimeError("Built-in model returned no audio")
-            return str(target), str(target), (
-                f"Generated Telugu with built-in {speaker} ONNX voice, "
-                f"speed {pace:.2f}. No gated model or API key required. "
-                "This is an adult-trained voice, not child voice cloning."
-            )
-        except Exception as exc:
-            raise gr.Error("Built-in Telugu generation failed: " + str(exc)[:500]) from exc
-    if using_upload:
-        if not exact_transcript or len(exact_transcript) > 500:
-            raise gr.Error("Enter the exact transcript of the reference speech.")
-        if not audio_reference:
-            raise gr.Error("Upload spoken reference audio, not laughter-only audio.")
-        if Path(audio_reference).stat().st_size > 15_000_000:
-            raise gr.Error("Reference exceeds 15 MB.")
-    with tempfile.TemporaryDirectory(dir=STORE) as temp_dir:
-        audio_wav = Path(temp_dir) / "reference.wav"
-        reference_source = audio_reference if using_upload else synthetic_reference(REFERENCE_PRESETS[reference_mode])
-        prompt_text = exact_transcript if using_upload else SYNTH_REF_TEXT
-        convert_audio(reference_source, audio_wav)
-        info = sf.info(str(audio_wav))
-        seconds = info.duration
-        if not 3 <= seconds <= 20:
-            raise gr.Error(f"Reference is {seconds:.1f} seconds. Use 3–20 seconds of clear speech.")
-        try:
-            model, device = load_model()
-            import torch
-            with torch.inference_mode():
-                signal = model.synthesize(
-                    text=text,
-                    prompt_wav=str(audio_wav),
-                    prompt_text=prompt_text,
-                    speed=float(speed) * STYLES[style],
-                    num_step=int(steps),
-                )
-            if hasattr(signal, "detach"):
-                signal = signal.detach().cpu().numpy()
-            signal = np.asarray(signal, dtype=np.float32).reshape(-1)
-            if signal.size == 0 or not np.isfinite(signal).all():
-                raise RuntimeError("TTS returned empty or invalid audio.")
-            output = STORE / (str(uuid.uuid4()) + ".wav")
-            sf.write(str(output), np.clip(signal, -0.98, 0.98),
-                     int(model.sampling_rate), subtype="PCM_16")
-        except gr.Error:
-            raise
-        except Exception as exc:
-            raise gr.Error("Generation failed: " + str(exc)[:650]) from exc
-    return str(output), str(output), (
-        f"Generated {len(signal) / model.sampling_rate:.1f}s of Telugu audio on {device}. "
-        "Style changes speed only; the model does not support native emotional acting "
-        "or guaranteed child voice identity. Check the recording by listening."
-    )
+    speaker = REFERENCE_PRESETS.get(reference_mode)
+    if speaker == "upload":
+        raise gr.Error(
+            "Custom reference cloning is temporarily disabled because DhVaani "
+            "requires gated model access. Choose Built-in Telugu female or male."
+        )
+    if speaker not in ("female", "male"):
+        raise gr.Error("Choose a built-in Telugu voice.")
+    try:
+        model = load_preset_engine()
+        pace = max(0.8, min(1.25, float(speed) * STYLES[style]))
+        audio = model.synthesize(text, voice=speaker, speed=pace)
+        output = STORE / (str(uuid.uuid4()) + ".wav")
+        model.save_wav(audio, str(output))
+        if not output.exists() or output.stat().st_size < 512:
+            raise RuntimeError("The model returned no audio.")
+        return str(output), str(output), (
+            f"v3 ungated: {speaker} voice, {pace:.2f}x speed. "
+            "No DhVaani token or reference upload required. "
+            "This is adult-trained Telugu synthesis, not authentic child cloning."
+        )
+    except Exception as exc:
+        raise gr.Error("Ungated Telugu synthesis failed: " + str(exc)[:500]) from exc
 
 def diagnostics():
     from importlib.metadata import version
@@ -156,7 +111,7 @@ def diagnostics():
             "This is NOT proof that model inference works.")
 
 with gr.Blocks(title="Telugu Reference Voice Studio v2") as demo:
-    gr.Markdown("# 🎙️ Telugu Reference Voice Studio v2")
+    gr.Markdown("# 🎙️ Telugu Voice Studio v3 — UNGATED")
     gr.Markdown("**Built-in Telugu voices use an ungated ONNX model with no token required.** "
                 "Only `Upload authorized reference` uses gated DhVaani for voice cloning. "
                 "These built-in voices are adult-trained, not authentic child voices.")
