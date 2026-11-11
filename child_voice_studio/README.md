@@ -1,21 +1,20 @@
-# Telugu Dialogue Voice Studio
+# Telugu Character Voice Studio (Independent API v0.2)
 
-Paste Telugu dialogue, generate audio, play and download MP3.
+Browser app: paste dialogue in **native Telugu script**, choose a boy/girl character profile, generate and download MP3.
 
-## Deploy on Hugging Face Spaces
-Create a **Gradio / CPU Basic** Space. Copy `app.py`, `requirements.txt`, and `packages.txt` from this directory into the **root** of the new Space (not inside a subfolder). For the optional Sarvam voice provider, add `SARVAM_API_KEY` as a **Secret** in Settings; do not commit it to GitHub.
+Open model: [Indic Tiny TTS Telugu](https://huggingface.co/sulabhkatiyar/indic-tiny-tts-telugu) by Sulabh Katiyar. Uses ONNX CPU inference. The underlying male/female voices were trained on adult Rasa speech data. The character presets modify pitch, resonance and tempo but do not constitute unique child-trained voice identities. They are **not** guaranteed to sound like 6-year-old children.
 
-The free engine uses Google Translate TTS via gTTS and needs internet access. It is not child-trained and might sound artificial. Sarvam v3 provides Telugu speakers but none of these presets are guaranteed child voices. Pitch effect is an experimental approximation.
+### Custom API — no Sarvam required
+- `GET /api/health` readiness details (does not load model)
+- `GET /api/voices` available profiles
+- `POST /api/generate` with JSON `{"text":"హాయ్!","character":"Chintu · energetic boy (~6 style)","tempo":1.0,"pitch_offset":0.0}` responds with MP3 bytes.
+- `/docs` OpenAPI docs may be accessible depending on Gradio mount routing.
 
-For a Space repository root, its README must include this metadata:
+### Deploy
+GitHub workflow copies `app.py`, `requirements.txt`, and `packages.txt` into the Hugging Face Gradio Space root. First generation downloads the ONNX model, which may take additional startup time. Space requires FFmpeg (`packages.txt`).
 
-```yaml
----
-title: Telugu Dialogue Voice Studio
-emoji: 🎤
-sdk: gradio
-app_file: app.py
----
-```
+### Reference
+An uploaded reference video helped specify the target (younger, brighter and more animated speech), but the video is **not** used for cloning or uploaded to the Space. Matching a real six-year-old timbre needs licensed, child-trained data and a different model or properly consented reference-speaker training. Independent model inference replaces the earlier gTTS/Sarvam API dependency.
 
-Free voice synthesis and deployment are not yet runtime-verified. For usage limitations, check Google and Sarvam service terms.
+### Licenses
+Acoustic model CC-BY-4.0, Vocos vocoder MIT, model code MIT; see the original model card and Rasa attribution.
