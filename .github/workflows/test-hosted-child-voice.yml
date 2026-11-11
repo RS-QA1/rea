@@ -1,0 +1,23 @@
+name: End to end hosted child voice test
+on:
+  push:
+    branches: [child-voice-studio-v01]
+    paths:
+      - "child_model_lab/remote_test.py"
+      - ".github/workflows/test-hosted-child-voice.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  voice-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Gradio API client
+        run: python -m pip install "gradio_client>=1.9,<2.0"
+      - name: Generate and download child voice from hosted Space
+        run: python child_model_lab/remote_test.py
