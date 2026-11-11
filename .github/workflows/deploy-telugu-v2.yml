@@ -28,7 +28,7 @@ jobs:
           docker run --rm telugu-voice-v2 python -c 'import gradio,numpy,onnxruntime,huggingface_hub; print("IMPORT_TEST_PASS")'
       - name: Generate actual Telugu audio with both free engines
         run: |
-          docker run --rm telugu-voice-v2 python - <<'PY'
+          docker run --rm -i telugu-voice-v2 python - <<'PY'
           import app, pathlib, subprocess
           for voice in ("Indic Tiny · Female", "Piper · Padmavathi"):
               audio, downloadable, details = app.make_audio(
