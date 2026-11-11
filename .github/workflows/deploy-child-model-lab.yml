@@ -29,6 +29,26 @@ jobs:
         run: |
           docker build --progress=plain -t child-model-lab child_model_lab
           docker run --rm child-model-lab python -c 'from TTS.tts.configs.xtts_config import XttsConfig; from TTS.tts.models.xtts import Xtts; print("CHILD_ENGINE_IMPORT_PASS")'
+      - name: Check Gradio API schema and UI health inside Docker
+        run: |
+          docker run --rm child-model-lab python -c 'import app; info=app.ui.get_api_info(); assert info; print("GRADIO_API_SCHEMA_PASS")'
+          docker run --rm -d --name child-model-ui-check -p 18760:7860 child-model-lab
+          trap 'docker stop child-model-ui-check || true' EXIT
+          python - <<'PY'
+          import urllib.request, time
+          last=None
+          for _ in range(40):
+              try:
+                  with urllib.request.urlopen("http://127.0.0.1:18760/",timeout=5) as r:
+                      assert r.status==200
+                      print("CHILD_UI_HTTP_PASS")
+                      break
+              except Exception as e:
+                  last=e
+                  time.sleep(2)
+          else:
+              raise RuntimeError("Gradio UI did not start: "+str(last))
+          PY
       - name: Test actual child-trained model generation
         run: |
           docker run --rm child-model-lab python -c 'import app,wave,pathlib; a,b,msg=app.generate("Hello! Look at my little dragon!",0.8); p=pathlib.Path(a); assert p.stat().st_size>10000; w=wave.open(a,"rb"); assert w.getnframes()>12000; print("CHILD_MODEL_AUDIO_PASS",w.getnframes(),msg)'
