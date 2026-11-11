@@ -3,8 +3,11 @@ on:
   push:
     branches: [child-voice-studio-v01]
     paths:
-      - "child_model_lab/**"
-      - ".github/workflows/deploy-child-model-lab.yml"
+      - "child_model_lab/app.py"
+      - "child_model_lab/requirements.txt"
+      - "child_model_lab/Dockerfile"
+      - "child_model_lab/deploy.py"
+      - "child_model_lab/SPACE_README.md"
   workflow_dispatch:
 permissions:
   contents: read
