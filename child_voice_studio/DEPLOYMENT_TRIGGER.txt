@@ -1,0 +1,2 @@
+Deployment requested after user configured HF_TOKEN secret.
+This file triggers GitHub Actions on the child-voice-studio-v01 branch.
