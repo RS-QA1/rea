@@ -27,9 +27,24 @@ def get_model():
     import torch
     from transformers import AutoModel
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    model = AutoModel.from_pretrained(
-        MODEL_ID, trust_remote_code=True,
-    ).to(device).eval()
+    token = os.environ.get("HF_MODEL_TOKEN") or os.environ.get("HF_TOKEN")
+    if not token:
+        raise RuntimeError(
+            "This model is gated. Accept model access conditions at "
+            "https://huggingface.co/ARTPARK-IISc/DhVaani-0.5 "
+            "and add a read-only HF_MODEL_TOKEN under this Space's Settings > Secrets."
+        )
+    try:
+        model = AutoModel.from_pretrained(
+            MODEL_ID, trust_remote_code=True, token=token,
+        ).to(device).eval()
+    except Exception as exc:
+        raise RuntimeError(
+            "Could not load DhVaani model. Confirm you've accepted its gated "
+            "access conditions, your Space secret HF_MODEL_TOKEN has read "
+            "permission, and the Space has enough RAM. "
+            + str(exc)[:220]
+        ) from exc
     return model, device
 
 def check_audio(path, transcript):
@@ -114,8 +129,10 @@ with gr.Blocks(title="Telugu Reference Voice Studio") as demo:
             status = gr.Textbox(label="Model details", interactive=False)
     button.click(generate, [dialogue, reference, transcript, mood, speed, steps, permission],
                  [preview, download, status], api_name="generate_reference_voice")
-    gr.Markdown("Model: ARTPARK-IISc/DhVaani-0.5 · CC BY-NC 4.0 (non-commercial). "
-                "Model output may be slow on CPU Basic. No automatic voice library or persistent storage.")
+    gr.Markdown("Model: ARTPARK-IISc/DhVaani-0.5 · Apache 2.0, "
+                "subject to the rights of reference recordings and training-data licenses. "
+                "Model requires accepting gated access conditions and a read-only "
+                "HF_MODEL_TOKEN Space Secret. CPU Basic may be too slow or run out of RAM.")
 
 if __name__ == "__main__":
     demo.launch(server_name="0.0.0.0", server_port=int(os.getenv("PORT", "7860")),
