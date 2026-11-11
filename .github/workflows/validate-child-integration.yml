@@ -1,0 +1,30 @@
+name: Validate combined child and Telugu voice UI
+on:
+  push:
+    branches: [child-trained-integration-beta]
+    paths:
+      - "telugu_voice_v2/app.py"
+      - ".github/workflows/validate-child-integration.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Compile and inspect voice routing
+        run: |
+          python -m py_compile telugu_voice_v2/app.py
+          python - <<'PY'
+          from pathlib import Path
+          src=Path("telugu_voice_v2/app.py").read_text()
+          assert "Child-trained XTTS" in src
+          assert "Child-trained XTTS supports English" in src
+          assert "child_voice_client().predict" in src
+          assert "Indic Tiny" in src and "Piper" in src
+          print("VOICE_ROUTER_STATIC_PASS")
+          PY
