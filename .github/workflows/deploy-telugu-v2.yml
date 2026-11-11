@@ -35,15 +35,16 @@ jobs:
         run: |
           python - <<'PY'
           from huggingface_hub import HfApi
-          import os
+          import os, time
           api=HfApi(token=os.environ["HF_TOKEN"])
           url=open("/tmp/telugu-v2-upload.txt").read().split("SPACE_URL=")[1].splitlines()[0].strip()
           space=url.split("/spaces/")[1]
-          try:
-              state=api.wait_for_space(space,timeout=600)
-              stage=state.stage
-          except TimeoutError:
-              stage=api.get_space_runtime(space).stage
+          stage="UNKNOWN"
+          for _ in range(80):
+              stage=str(api.get_space_runtime(space).stage)
+              if stage in ("RUNNING","SLEEPING","BUILD_ERROR","RUNTIME_ERROR","CONFIG_ERROR","PAUSED"):
+                  break
+              time.sleep(6)
           print("SPACE_STAGE="+str(stage))
           with open("/tmp/telugu-v2-stage.txt","w") as f:f.write(str(stage))
           if stage not in ("RUNNING","SLEEPING"):
