@@ -25,7 +25,7 @@ jobs:
       - name: Build Docker container and check imports
         run: |
           docker build --pull --progress=plain -t telugu-voice-v2 telugu_voice_v2
-          docker run --rm telugu-voice-v2 python -c 'import gradio,numpy,soundfile,torch,transformers; print("IMPORT_TEST_PASS")'
+          docker run --rm telugu-voice-v2 python -c 'import gradio,numpy,onnxruntime,huggingface_hub; print("IMPORT_TEST_PASS")'
       - name: Install only deployment tool
         run: python -m pip install 'huggingface_hub==0.36.0'
       - name: Upload to new Docker Space
