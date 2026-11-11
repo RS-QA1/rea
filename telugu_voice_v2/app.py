@@ -74,7 +74,25 @@ def command(arguments, timeout=90):
 
 def synthesize_base(text, selected, destination):
     backend, speaker = BASE_VOICES[selected]
-    if backend == "indic":
+    if backend == "child":
+        if re.search(r"[\\u0c00-\\u0c7f]", text):
+            raise ValueError("Child-trained XTTS supports English, not Telugu.")
+        try:
+            result = child_voice_client().predict(
+                text, 0.8, api_name="/generate_child_voice")
+            source = result[0] if isinstance(result, (list, tuple)) else result
+            if isinstance(source, dict):
+                source = source.get("path") or source.get("name")
+            source = Path(str(source))
+            if not source.is_file():
+                raise RuntimeError("Child backend returned no WAV.")
+            command(["-i", str(source), "-ac", "1", "-ar", "24000",
+                     "-c:a", "pcm_s16le", str(destination)], timeout=180)
+        except Exception as exc:
+            raise RuntimeError("Child backend is unavailable. "
+                               "Regular Telugu voices remain usable. "
+                               + str(exc)[:200]) from exc
+    elif backend == "indic":
         engine = load_indic()
         audio = engine.synthesize(text, voice=speaker, speed=1.0)
         engine.save_wav(audio, str(destination))
@@ -87,6 +105,8 @@ def synthesize_base(text, selected, destination):
 
 def render_speech(text, voice, pitch, pace, out):
     with tempfile.TemporaryDirectory(dir=STORE) as folder:
+        if voice == "Child-trained XTTS · English (beta)":
+            pitch = 0.0
         raw = Path(folder) / "raw.wav"
         synthesize_base(text, voice, raw)
         # The base voice remains unmodified for natural mode.
