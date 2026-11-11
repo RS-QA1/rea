@@ -1,0 +1,51 @@
+name: Validate and Deploy Cartoon Child Telugu Voices
+on:
+  push:
+    branches: [child-voice-studio-v01]
+    paths:
+      - "cartoon_child_lab/**"
+      - ".github/workflows/deploy-cartoon-child-lab.yml"
+  workflow_dispatch:
+concurrency:
+  group: cartoon-child-lab-deploy
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  build-test-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Verify Python syntax
+        run: python -m py_compile cartoon_child_lab/app.py cartoon_child_lab/deploy.py
+      - name: Build Docker app
+        run: docker build --progress=plain -t cartoon-child-lab cartoon_child_lab
+      - name: Generate and validate all character profiles and both styles
+        run: |
+          docker run --rm -i cartoon-child-lab python - <<'PY'
+          import app, pathlib, subprocess
+          for name in app.CHARACTERS:
+              for effect in ("Helium cartoon","Soft cartoon"):
+                  audio, _, status=app.synthesize(
+                      "అమ్మా! నేను వచ్చాను!",name,effect,"Natural cartoon",0.0)
+                  p=pathlib.Path(audio)
+                  assert p.exists() and p.stat().st_size>2000
+                  duration=float(subprocess.run(
+                      ["ffprobe","-v","error","-show_entries","format=duration",
+                       "-of","default=noprint_wrappers=1:nokey=1",str(p)],
+                      capture_output=True,text=True,check=True).stdout)
+                  assert duration>0.5
+                  print("CHILD_CARTOON_AUDIO_PASS",name,effect,round(duration,2),flush=True)
+          PY
+      - name: Check Gradio schema
+        run: docker run --rm cartoon-child-lab python -c 'import app; assert app.demo.get_api_info(); print("GRADIO_SCHEMA_PASS")'
+      - name: Install deployment client
+        run: python -m pip install "huggingface_hub==0.36.0"
+      - name: Deploy tested child-character app
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: python cartoon_child_lab/deploy.py
