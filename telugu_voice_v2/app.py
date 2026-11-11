@@ -176,7 +176,9 @@ def make_audio(text, voice, character, emotion, speed, laugh_upload, instruction
         raise RuntimeError("Final audio export failed.")
     info = (f"{voice} · {character} · {emotion} · {pace:.2f}×. "
             + ("Recorded laugh inserted. " if laugh_count else "")
-            + "Character effects approximate youth; authentic child-trained voices are not included.")
+            + ("Actual child-speech-trained XTTS English voice (experimental)."
+               if "Child-trained XTTS" in voice else
+               "Telugu character effects approximate youth; not child-trained voices."))
     return str(final), str(final), info
 
 def safe_generate(*args):
@@ -187,14 +189,14 @@ def safe_generate(*args):
     except Exception as exc:
         raise gr.Error("Audio generation failed: " + str(exc)[:500]) from exc
 
-with gr.Blocks(title="Telugu Voice Studio — Free Multi-Engine") as demo:
-    gr.Markdown("# 🎙️ Telugu Voice Studio — Free Multi-Engine")
-    gr.Markdown("**Two free CPU TTS engines, four Telugu base voices.** No Sarvam account, "
-                "gated DhVaani model or paid API required. Real children's speech is not "
-                "guaranteed; youthful presets are mild approximations.")
+with gr.Blocks(title="Telugu and Child Voice Studio") as demo:
+    gr.Markdown("# 🎙️ Telugu + Child Voice Studio")
+    gr.Markdown("Two free Telugu speech engines and an experimental, child-speech-trained "
+                "English model. Child synthesis runs on a separate hosted CPU backend "
+                "and can be slower. Telugu child-trained speech is not available yet.")
     with gr.Row():
         with gr.Column():
-            dialogue = gr.Textbox(label="తెలుగు డైలాగ్ / Telugu dialogue",
+            dialogue = gr.Textbox(label="Dialogue (Telugu or English for the child model)",
                                   lines=5, value="అమ్మా! చూడు! నేను ఒక చిన్న డ్రాగన్‌ని చూశాను!")
             voice = gr.Dropdown(list(BASE_VOICES), value="Indic Tiny · Female",
                                 label="Voice model + speaker")
