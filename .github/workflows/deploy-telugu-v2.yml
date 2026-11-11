@@ -6,6 +6,9 @@ on:
       - "telugu_voice_v2/**"
       - ".github/workflows/deploy-telugu-v2.yml"
   workflow_dispatch:
+concurrency:
+  group: telugu-v2-space-deployment
+  cancel-in-progress: true
 permissions:
   contents: write
 jobs:
