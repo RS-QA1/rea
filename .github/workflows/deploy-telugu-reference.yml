@@ -7,7 +7,7 @@ on:
       - ".github/workflows/deploy-telugu-reference.yml"
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
 jobs:
   deploy-reference:
     runs-on: ubuntu-latest
@@ -23,4 +23,16 @@ jobs:
       - name: Upload independent reference-voice Space
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        run: python reference_voice_studio/deploy.py
+        run: python reference_voice_studio/deploy.py | tee /tmp/reference-deploy.txt
+      - name: Record published Space URL
+        run: |
+          URL="$(sed -n 's/^REFERENCE_SPACE=//p' /tmp/reference-deploy.txt | tail -1)"
+          test -n "$URL"
+          printf 'Reference Studio Space: %s\\nModel inference not yet verified.\\n' "$URL" > DEPLOYED_REFERENCE_STUDIO.md
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add DEPLOYED_REFERENCE_STUDIO.md
+          if ! git diff --cached --quiet; then
+            git commit -m 'Record reference voice Space URL'
+            git push origin HEAD:child-voice-studio-v01
+          fi
