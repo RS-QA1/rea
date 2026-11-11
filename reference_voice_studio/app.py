@@ -129,7 +129,7 @@ with gr.Blocks(title="Telugu Reference Voice Studio") as demo:
             status = gr.Textbox(label="Model details", interactive=False)
     button.click(generate, [dialogue, reference, transcript, mood, speed, steps, permission],
                  [preview, download, status], api_name="generate_reference_voice")
-    gr.Markdown("Model: ARTPARK-IISc/DhVaani-0.5 · Apache 2.0, "
+    gr.Markdown("Model: ARTPARK-IISc/DhVaani-0.5 · CC BY-NC 4.0, "
                 "subject to the rights of reference recordings and training-data licenses. "
                 "Model requires accepting gated access conditions and a read-only "
                 "HF_MODEL_TOKEN Space Secret. CPU Basic may be too slow or run out of RAM.")
