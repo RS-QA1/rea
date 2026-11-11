@@ -1,6 +1,6 @@
 # Telugu Reference Voice Studio (experimental)
 
-Separate from the existing working Telugu Voice Studio. Uses [DhVaani 0.5](https://huggingface.co/ARTPARK-IISc/DhVaani-0.5) for zero-shot reference-conditioned Telugu speech. Model card currently lists **Apache 2.0**; check third-party data and reference-audio rights separately before commercial use.
+Separate from the existing working Telugu Voice Studio. Uses [DhVaani 0.5](https://huggingface.co/ARTPARK-IISc/DhVaani-0.5) for zero-shot reference-conditioned Telugu speech. Model card lists **CC BY-NC 4.0**, so use this prototype for noncommercial testing only without additional rights. Check reference-audio rights separately.
 
 ## How to test
 1. Upload 5–15 seconds of clean **spoken** reference audio with clear Telugu speech.
