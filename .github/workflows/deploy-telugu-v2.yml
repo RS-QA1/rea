@@ -26,6 +26,10 @@ jobs:
         run: |
           docker build --pull --progress=plain -t telugu-voice-v2 telugu_voice_v2
           docker run --rm telugu-voice-v2 python -c 'import gradio,numpy,onnxruntime,huggingface_hub; print("IMPORT_TEST_PASS")'
+      - name: Generate sample Telugu WAV inside Docker (required)
+        run: |
+          docker run --rm telugu-voice-v2 python -c 'import app, pathlib, wave; wav, _, details = app.synthesize("అమ్మా! నమస్కారం!", "Telugu female", "Natural", 1.0); f=pathlib.Path(wav); assert f.exists() and f.stat().st_size > 2048, "Empty WAV"; r=wave.open(wav,"rb"); assert r.getnframes() > r.getframerate()//2; print("SYNTHESIS_SMOKE_PASS", r.getnframes(), details)'
+
       - name: Install only deployment tool
         run: python -m pip install 'huggingface_hub==0.36.0'
       - name: Upload to new Docker Space
