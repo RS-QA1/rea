@@ -2,6 +2,7 @@
 import os
 import sys
 import uuid
+import re
 import shutil
 import subprocess
 import wave
@@ -88,6 +89,49 @@ def shorten_long_gaps(wav_path):
         out.writeframes(combined.astype("<i2").tobytes())
     return True
 
+DELIVERY_PRESETS = {
+    "Natural": {"tempo": 1.00, "pitch": 0.0},
+    "Excited": {"tempo": 1.10, "pitch": 0.35},
+    "Playful": {"tempo": 1.06, "pitch": 0.30},
+    "Shy": {"tempo": 0.91, "pitch": -0.15},
+    "Sad": {"tempo": 0.88, "pitch": -0.30},
+    "Angry": {"tempo": 1.08, "pitch": -0.20},
+    "Whisper-like": {"tempo": 0.90, "pitch": -0.15},
+}
+
+def interpret_delivery(prompt, preset, text):
+    """Explicit, deterministic prompt controls, not instruction-following speech AI."""
+    p = (prompt or "").lower()
+    mood = preset if preset in DELIVERY_PRESETS else "Natural"
+    keywords = [
+        ("excited", ("excited", "exciting", "ఉత్సాహ")),
+        ("Playful", ("playful", "naughty", "సరదా")),
+        ("Shy", ("shy", "softly", "సిగ్గు")),
+        ("Sad", ("sad", "crying", "దుఃఖ", "ఏడుస్తూ")),
+        ("Angry", ("angry", "కోపం")),
+        ("Whisper-like", ("whisper", "గుసగుస")),
+    ]
+    for candidate, needles in keywords:
+        if any(word in p for word in needles):
+            mood = "Excited" if candidate == "excited" else candidate
+            break
+    # A laugh request is rendered as syllabic *spoken* laughter through TTS.
+    # This model cannot produce a genuine breathy non-speech giggle.
+    laugh = any(word in p for word in
+                ("laugh", "giggle", "chuckle", "hehe", "haha", "నవ్వ"))
+    before = any(word in p for word in ("before", "start", "first", "ముందు"))
+    after = any(word in p for word in ("after", "end", "finish", "తర్వాత", "చివర"))
+    if laugh and not (before or after):
+        after = True
+    marked = re.sub(r"\[(?:giggle|laugh|hehe|haha)\]",
+                    " హి హి హి! ", text, flags=re.IGNORECASE)
+    if laugh and marked == text:
+        if before:
+            marked = "హి హి హి! " + marked
+        if after:
+            marked = marked + " హా హా!"
+    return marked, mood, laugh
+
 def render(text, character, tempo=1.0, pitch_offset=0.0, pause_cleanup=True, tuning="Natural / clean"):
     text = (text or "").strip()
     if not text:
@@ -130,10 +174,17 @@ def render(text, character, tempo=1.0, pitch_offset=0.0, pause_cleanup=True, tun
         raise RuntimeError("Audio processing failed: " + result.stderr[-300:])
     return str(output)
 
-def from_ui(text, character, tempo, pitch_offset, pause_cleanup, tuning):
+def from_ui(text, character, tempo, pitch_offset, pause_cleanup, tuning, delivery, acting_prompt):
     try:
-        filepath = render(text, character, tempo, pitch_offset, pause_cleanup, tuning)
-        return filepath, filepath, ("Audio v0.4 — " + tuning + ". Adult-trained base voice. " + ("Long-pause cleanup on." if pause_cleanup else "Original pauses preserved."))
+        prepared, mood, laugh = interpret_delivery(acting_prompt, delivery, text or "")
+        style = DELIVERY_PRESETS[mood]
+        applied_tempo = max(0.8, min(1.25, tempo * style["tempo"]))
+        applied_pitch = max(-2.0, min(2.0, pitch_offset + style["pitch"]))
+        filepath = render(prepared, character, applied_tempo, applied_pitch, pause_cleanup, tuning)
+        info = (f"Delivery: {mood}. Speed {applied_tempo:.2f}x. "
+                + ("Laughter approximated by spoken Telugu syllables, not natural child giggling. " if laugh or "[giggle]" in (text or "").lower() else "")
+                + "Speech engine is not expressive TTS; acting prompt supports preset moods and laugh placement, not arbitrary directions.")
+        return filepath, filepath, info
     except Exception as exc:
         raise gr.Error(str(exc)[:500]) from exc
 
@@ -158,11 +209,23 @@ with gr.Blocks(title="Telugu Kids Character Voice Studio") as ui:
         pause_cleanup = gr.Checkbox(
             label="Shorten long silent gaps (optional)", value=True
         )
+    gr.Markdown("### 🎭 Acting direction and laughs")
+    delivery = gr.Dropdown(
+        choices=list(DELIVERY_PRESETS), value="Natural",
+        label="Emotion / delivery",
+    )
+    acting_prompt = gr.Textbox(
+        label="How should the character speak? (English or Telugu keywords)",
+        placeholder="Excited and playful. Giggle before speaking, then say the line quickly.",
+        lines=3,
+    )
+    gr.Markdown("You can add `[giggle]` or `[laugh]` inside the dialogue. "
+                "**Important:** laughter is spoken 'హి హి' by the model; it is not a natural child laugh.")
     go = gr.Button("🎤 Generate voice", variant="primary")
     preview = gr.Audio(label="Listen", type="filepath")
     download = gr.File(label="Download MP3")
     note = gr.Textbox(label="Voice info", interactive=False)
-    go.click(from_ui, inputs=[script, character, tempo, pitch, pause_cleanup, tuning],
+    go.click(from_ui, inputs=[script, character, tempo, pitch, pause_cleanup, tuning, delivery, acting_prompt],
              outputs=[preview, download, note], api_name="generate_voice")
     gr.Markdown("Gradio API: `generate_voice` is available through the Space API. "
                 "Model attribution: Indic Tiny TTS Telugu by Sulabh Katiyar; AI4Bharat Rasa dataset (CC BY 4.0). "
