@@ -4,11 +4,8 @@ Browser app: paste dialogue in **native Telugu script**, choose a boy/girl chara
 
 Open model: [Indic Tiny TTS Telugu](https://huggingface.co/sulabhkatiyar/indic-tiny-tts-telugu) by Sulabh Katiyar. Uses ONNX CPU inference. The underlying male/female voices were trained on adult Rasa speech data. The character presets modify pitch, resonance and tempo but do not constitute unique child-trained voice identities. They are **not** guaranteed to sound like 6-year-old children.
 
-### Custom API — no Sarvam required
-- `GET /api/health` readiness details (does not load model)
-- `GET /api/voices` available profiles
-- `POST /api/generate` with JSON `{"text":"హాయ్!","character":"Chintu · energetic boy (~6 style)","tempo":1.0,"pitch_offset":0.0}` responds with MP3 bytes.
-- `/docs` OpenAPI docs may be accessible depending on Gradio mount routing.
+### Gradio API — no Sarvam required
+The browser UI exposes a Gradio endpoint named `generate_voice`. Use Hugging Face Space **View API** to see its request schema and client usage. This release removes the separate FastAPI server that conflicted with Gradio on port 7860.
 
 ### Deploy
 GitHub workflow copies `app.py`, `requirements.txt`, and `packages.txt` into the Hugging Face Gradio Space root. First generation downloads the ONNX model, which may take additional startup time. Space requires FFmpeg (`packages.txt`).
