@@ -26,13 +26,18 @@ jobs:
         run: |
           docker build --pull --progress=plain -t telugu-voice-v2 telugu_voice_v2
           docker run --rm telugu-voice-v2 python -c 'import gradio,numpy,onnxruntime,huggingface_hub; print("IMPORT_TEST_PASS")'
-      - name: Generate actual Telugu audio with both free engines
+      - name: Generate actual audio from Telugu and child-trained engines
         run: |
           docker run --rm -i telugu-voice-v2 python - <<'PY'
           import app, pathlib, subprocess
-          for voice in ("Indic Tiny · Female", "Piper · Padmavathi"):
+          cases = (
+              ("Indic Tiny · Female", "అమ్మా! నమస్కారం!"),
+              ("Piper · Padmavathi", "అమ్మా! నమస్కారం!"),
+              ("Child-trained XTTS · English (beta)", "Mom! Look at the dragon!"),
+          )
+          for voice, dialogue in cases:
               audio, downloadable, details = app.make_audio(
-                  "అమ్మా! నమస్కారం!", voice, "Natural voice", "Natural", 1.0, None, ""
+                  dialogue, voice, "Natural voice", "Natural", 1.0, None, ""
               )
               result = subprocess.run(
                   ["ffprobe", "-v", "error", "-show_entries", "format=duration",
@@ -83,7 +88,7 @@ jobs:
             echo "- App: $URL"
             echo "- Runtime: $STAGE"
             echo "- Docker dependency/import checks: passed"
-            echo "- Indic Tiny and Piper Telugu synthesis tests: passed"
+            echo "- Indic Tiny, Piper and hosted child XTTS audio tests: passed"
             echo "- Voice quality: not independently evaluated"
           } >> "$GITHUB_STEP_SUMMARY"
           echo "Verified Space: $URL ($STAGE)"
