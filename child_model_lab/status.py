@@ -19,7 +19,18 @@ for attempt in range(45):
 if stage!="RUNNING":
     raise RuntimeError("Space not RUNNING: "+stage)
 url=f'https://{api.whoami()["name"].lower()}-child-voice-model-lab.hf.space/'
-with urllib.request.urlopen(url,timeout=30) as response:
-    print("HTTP_STATUS",response.status,flush=True)
-    assert response.status==200
+healthy = False
+for attempt in range(18):
+    try:
+        request=urllib.request.Request(url,headers={"User-Agent":"Child-Voice-Model-Lab-Health/1.0"})
+        with urllib.request.urlopen(request,timeout=20) as response:
+            print("HTTP_STATUS",response.status,"attempt",attempt+1,flush=True)
+            healthy = response.status == 200
+        if healthy:
+            break
+    except Exception as exc:
+        print("HTTP_CHECK_ERROR",repr(exc)[:320],"attempt",attempt+1,flush=True)
+    time.sleep(10)
+if not healthy:
+    raise RuntimeError("Hosted UI did not reach HTTP 200")
 print("CHILD_SPACE_UI_READY",url)
