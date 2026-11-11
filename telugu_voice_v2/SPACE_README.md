@@ -1,5 +1,5 @@
 ---
-title: Telugu Reference Voice v2
+title: Telugu and Child Voice Studio
 emoji: "🎙️"
 colorFrom: indigo
 colorTo: purple
@@ -8,10 +8,19 @@ app_port: 7860
 pinned: false
 ---
 
-# Telugu Reference Voice v2
+# Telugu + Child Voice Studio
 
-Independent reference-based Telugu voice demo, Docker deployment, DhVaani model. Only reference speakers with authorization. For child voices, obtain guardian consent. Model CC BY-NC 4.0, so noncommercial testing only. A laugh-only clip is not enough to synthesize that speaker's speech.
+One interface for three free-to-test speech model backends.
 
-## Built-in voice presets
+- **Indic Tiny TTS Telugu**: Female and male Telugu, CPU/ONNX, adult-trained.
+- **Piper Telugu**: Padmavathi and Venkatesh, CPU.
+- **Child-trained XTTS English (experimental)**: An English voice fine-tuned on child speech, hosted separately at [Child Voice Model Lab](https://huggingface.co/spaces/Revankruthi/child-voice-model-lab) to isolate its 2.3 GB weights. It is **English-only** and may be slow on free CPU hardware.
 
-The app now prepares two synthetic Telugu speaking references automatically using [Indic Tiny TTS Telugu](https://huggingface.co/sulabhkatiyar/indic-tiny-tts-telugu): female and male. Select one and generate dialogue without providing a recording or transcript. These are adult-style TTS voices, **not actual six-year-old voices**. Model/code and dataset attributions are listed on the source model card (CC BY 4.0 for acoustic weights/Rasa data; MIT for code and vocoder). DhVaani output remains subject to its own noncommercial model license and gated model access restrictions. The separate upload option is for authorized custom voices only.
+The interface provides text input, output preview/download, basic pace controls, and optional separately recorded laugh segments. It does **not** yet generate native Telugu children's speech or natural emotional acting.
+
+No Sarvam API or gated DhVaani model is needed. The English child voice model is a research checkpoint. Check its base model and source-recording licenses before commercial or monetized use; the repository's MIT label does not necessarily override the underlying Coqui model license.
+
+Sources:
+- https://huggingface.co/sulabhkatiyar/indic-tiny-tts-telugu
+- https://huggingface.co/rhasspy/piper-voices
+- https://huggingface.co/Aniket2003333333/xtts-v2-child-voice-finetuned
