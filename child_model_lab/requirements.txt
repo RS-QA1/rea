@@ -1,0 +1,9 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.1.2+cpu
+torchaudio==2.1.2+cpu
+TTS==0.22.0
+transformers==4.37.2
+huggingface_hub==0.25.2
+gradio==5.20.1
+numpy==1.26.4
+soundfile==0.12.1
