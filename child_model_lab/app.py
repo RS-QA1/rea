@@ -1,4 +1,4 @@
-"""Experimental child-trained XTTS voice — English only, not connected to Telugu app."""
+"""Child-trained XTTS English model lab v0.2 — separate tested backend."""
 import os
 import uuid
 from pathlib import Path
