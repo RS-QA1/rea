@@ -75,7 +75,7 @@ def command(arguments, timeout=90):
 def synthesize_base(text, selected, destination):
     backend, speaker = BASE_VOICES[selected]
     if backend == "child":
-        if re.search(r"[\\u0c00-\\u0c7f]", text):
+        if any(0x0C00 <= ord(c) <= 0x0C7F for c in text):
             raise ValueError("Child-trained XTTS supports English, not Telugu.")
         try:
             result = child_voice_client().predict(
