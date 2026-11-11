@@ -84,6 +84,25 @@ def synthesize(text, reference_mode, audio_reference, exact_transcript, style, s
     exact_transcript = (exact_transcript or "").strip()
     if not text or len(text) > 400:
         raise gr.Error("Enter Telugu dialogue between 1 and 400 characters.")
+    # Ungated built-in Telugu voices use their own ONNX inference directly.
+    # Do NOT fetch the gated DhVaani model unless custom cloning was selected.
+    if not using_upload:
+        try:
+            engine = load_preset_engine()
+            speaker = REFERENCE_PRESETS[reference_mode]
+            pace = float(speed) * STYLES[style]
+            signal = engine.synthesize(text, voice=speaker, speed=pace)
+            target = STORE / (str(uuid.uuid4()) + "_preset.wav")
+            engine.save_wav(signal, str(target))
+            if not target.exists() or target.stat().st_size < 512:
+                raise RuntimeError("Built-in model returned no audio")
+            return str(target), str(target), (
+                f"Generated Telugu with built-in {speaker} ONNX voice, "
+                f"speed {pace:.2f}. No gated model or API key required. "
+                "This is an adult-trained voice, not child voice cloning."
+            )
+        except Exception as exc:
+            raise gr.Error("Built-in Telugu generation failed: " + str(exc)[:500]) from exc
     if using_upload:
         if not exact_transcript or len(exact_transcript) > 500:
             raise gr.Error("Enter the exact transcript of the reference speech.")
@@ -138,8 +157,9 @@ def diagnostics():
 
 with gr.Blocks(title="Telugu Reference Voice Studio v2") as demo:
     gr.Markdown("# 🎙️ Telugu Reference Voice Studio v2")
-    gr.Markdown("**Choose a built-in synthetic Telugu voice; no upload required.** "
-                "Reference laughter without words cannot establish the speaker's talking voice.")
+    gr.Markdown("**Built-in Telugu voices use an ungated ONNX model with no token required.** "
+                "Only `Upload authorized reference` uses gated DhVaani for voice cloning. "
+                "These built-in voices are adult-trained, not authentic child voices.")
     with gr.Row():
         with gr.Column():
             reference_mode = gr.Radio(choices=list(REFERENCE_PRESETS), value="Built-in Telugu female", label="1. Ready-to-use voice preset")
@@ -164,9 +184,10 @@ with gr.Blocks(title="Telugu Reference Voice Studio v2") as demo:
     generate.click(synthesize, [text, reference_mode, reference, reference_text, style, speed, steps, consent],
                    [preview, download, message], api_name="generate_reference_voice")
     check.click(diagnostics, outputs=check_output)
-    gr.Markdown("Model: DhVaani-0.5 · CC BY-NC 4.0. Noncommercial testing only. "
-                "CPU inference may be slow or exceed free-tier resources. "
-                "Voice similarity is not guaranteed.")
+    gr.Markdown("Built-in voices: Indic Tiny TTS Telugu (check model and dataset attribution). "
+                "Custom-reference mode: DhVaani-0.5 (gated; CC BY-NC 4.0, noncommercial testing only). "
+                "For cloning, accept model access and set `HF_MODEL_TOKEN` in Space Secrets. "
+                "Reference speech needs authorization, including guardian consent for a child.")
 
 if __name__ == "__main__":
     demo.launch(server_name="0.0.0.0", server_port=7860, show_error=True)
