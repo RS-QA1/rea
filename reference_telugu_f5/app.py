@@ -68,7 +68,7 @@ def generate(dialogue, video, start, duration, transcript, steps, speed, authori
     dialogue = (dialogue or "").strip()
     if not dialogue or len(dialogue) > 450:
         raise gr.Error("Enter 1–450 characters of Telugu dialogue.")
-    if not any("\\u0c00" <= c <= "\\u0c7f" for c in dialogue):
+    if not any(0x0C00 <= ord(c) <= 0x0C7F for c in dialogue):
         raise gr.Error("This checkpoint is Telugu-focused; please enter Telugu-script dialogue.")
     try:
         from f5_tts.infer.utils_infer import infer_process, preprocess_ref_audio_text
