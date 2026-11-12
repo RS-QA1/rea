@@ -1,0 +1,25 @@
+name: Verify Hosted Telugu Video Reference Voice
+on:
+  push:
+    branches: [child-voice-studio-v01]
+    paths:
+      - "reference_telugu_f5/hosted_test.py"
+      - ".github/workflows/check-hosted-reference-telugu.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq espeak-ng
+      - run: python -m pip install "huggingface_hub==1.16.0" "gradio_client==2.7.2"
+      - name: Check hosted UI and submit test generation
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: python reference_telugu_f5/hosted_test.py
