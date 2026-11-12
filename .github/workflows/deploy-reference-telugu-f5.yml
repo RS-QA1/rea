@@ -3,7 +3,11 @@ on:
   push:
     branches: [child-voice-studio-v01]
     paths:
-      - "reference_telugu_f5/**"
+      - "reference_telugu_f5/app.py"
+      - "reference_telugu_f5/requirements.txt"
+      - "reference_telugu_f5/Dockerfile"
+      - "reference_telugu_f5/SPACE_README.md"
+      - "reference_telugu_f5/deploy.py"
       - ".github/workflows/deploy-reference-telugu-f5.yml"
   workflow_dispatch:
 concurrency:
