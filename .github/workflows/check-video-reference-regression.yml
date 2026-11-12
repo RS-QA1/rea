@@ -69,7 +69,8 @@ jobs:
               print("HOSTED_BLANK_TRANSCRIPT_GENERATION_PASS",flush=True)
           except Exception as exc:
               error=str(exc)
-              assert "AudioDecoder" not in error and "torchcodec" not in error.lower(),error
-              print("HOSTED_BLANK_TRANSCRIPT_NO_CODEC_ERROR",type(exc).__name__,error[:250],flush=True)
+              if "No speech detected in the selected reference section." not in error:
+                  raise
+              print("HOSTED_BLANK_TRANSCRIPT_NO_SPEECH",flush=True)
 
           PY
