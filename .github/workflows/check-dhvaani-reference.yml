@@ -1,0 +1,68 @@
+name: Test DhVaani Telugu reference synthesis
+on:
+  push:
+    branches: [child-voice-studio-v01]
+    paths: [.github/workflows/check-dhvaani-reference.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  synthesize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check model access before building
+        env:
+          HF_TOKEN: ${{ secrets.HF_MODEL_TOKEN || secrets.HF_TOKEN }}
+        run: |
+          python - <<'PY'
+          import os
+          import urllib.error
+          import urllib.request
+
+          token = os.environ.get("HF_TOKEN")
+          if not token:
+              raise SystemExit("No model access token is configured.")
+          request = urllib.request.Request(
+              "https://huggingface.co/ARTPARK-IISc/DhVaani-0.5/resolve/main/config.json",
+              headers={"Authorization": f"Bearer {token}"},
+          )
+          try:
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  response.read(65536)
+          except urllib.error.HTTPError as error:
+              raise SystemExit(f"DhVaani config access failed with HTTP {error.code}.")
+          PY
+      - name: Build the existing DhVaani application
+        run: docker build -t dhvaani-test reference_voice_studio
+      - name: Generate Telugu from a synthetic reference
+        env:
+          HF_MODEL_TOKEN: ${{ secrets.HF_MODEL_TOKEN || secrets.HF_TOKEN }}
+        run: |
+          sudo apt-get install -y espeak-ng
+          mkdir -p test-audio
+          chmod 777 test-audio
+          espeak-ng -v te -s 110 -w test-audio/reference.wav 'నమస్కారం. నేను మీకు ఒక చిన్న కథ చెబుతాను.'
+          docker run --rm -i -e HF_MODEL_TOKEN -v "$PWD/test-audio:/test-audio" dhvaani-test python - <<'PY'
+          import shutil
+          import soundfile as sf
+          import numpy as np
+          from app import generate
+
+          preview, _, status = generate(
+              "అమ్మా! చూడు! నేను ఒక చిన్న డ్రాగన్‌ని చూశాను!",
+              "/test-audio/reference.wav",
+              "నమస్కారం. నేను మీకు ఒక చిన్న కథ చెబుతాను.",
+              "Natural", 1.0, 12, True,
+          )
+          samples, rate = sf.read(preview)
+          assert len(samples) > rate // 2 and np.isfinite(samples).all()
+          assert np.max(np.abs(samples)) > 0.01
+          shutil.copyfile(preview, "/test-audio/dhvaani-telugu.wav")
+          print(status)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dhvaani-synthetic-reference-test
+          path: test-audio/dhvaani-telugu.wav
