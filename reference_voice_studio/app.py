@@ -2,6 +2,7 @@
 import os
 import math
 import pathlib
+import re
 import subprocess
 import tempfile
 import uuid
@@ -144,17 +145,28 @@ def generate(text, reference_audio, reference_text, expression, speed, steps, pe
 
         candidate = pathlib.Path(tmp) / "candidate.wav"
         recognized = ""
+        sentences = [
+            part.strip() for part in re.findall(r"[^.!?।\n]+[.!?।]*", text)
+            if part.strip()
+        ]
         for inference_steps in (int(steps), 16):
+            parts = []
+            pause = np.zeros(int(model.sampling_rate * 0.16), dtype=np.float32)
             with torch.inference_mode():
-                waveform = model.synthesize(
-                    text=text.strip(), prompt_wav=str(ref), prompt_text=reference_text,
-                    num_step=inference_steps, speed=float(speed) * style_speed,
-                )
-            if hasattr(waveform, "detach"):
-                waveform = waveform.detach().cpu().numpy()
-            signal = np.asarray(waveform, dtype=np.float32).flatten()
-            if not signal.size or not np.isfinite(signal).all():
+                for sentence in sentences:
+                    waveform = model.synthesize(
+                        text=sentence, prompt_wav=str(ref), prompt_text=reference_text,
+                        num_step=inference_steps, speed=float(speed) * style_speed,
+                    )
+                    if hasattr(waveform, "detach"):
+                        waveform = waveform.detach().cpu().numpy()
+                    samples = np.asarray(waveform, dtype=np.float32).reshape(-1)
+                    if not samples.size or not np.isfinite(samples).all():
+                        break
+                    parts.extend((samples, pause))
+            if len(parts) != 2 * len(sentences):
                 continue
+            signal = np.concatenate(parts[:-1])
             sf.write(str(candidate), np.clip(signal * style_gain, -0.96, 0.96), int(model.sampling_rate))
             try:
                 recognized = transcribe(candidate, language="te")
