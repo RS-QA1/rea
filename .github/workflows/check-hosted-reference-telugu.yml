@@ -1,4 +1,5 @@
 name: Verify Hosted Telugu Video Reference Voice
+# Regression check after TorchCodec 0.1.1 compatibility fix
 on:
   push:
     branches: [child-voice-studio-v01]
