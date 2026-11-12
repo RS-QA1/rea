@@ -1,0 +1,54 @@
+name: Test and deploy Telugu reference voice F5
+on:
+  push:
+    branches: [child-voice-studio-v01]
+    paths:
+      - "reference_telugu_f5/**"
+      - ".github/workflows/deploy-reference-telugu-f5.yml"
+  workflow_dispatch:
+concurrency:
+  group: reference-telugu-f5
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Syntax check
+        run: python -m py_compile reference_telugu_f5/app.py reference_telugu_f5/deploy.py
+      - name: Docker build with pinned dependencies
+        run: docker build --progress=plain -t reference-telugu-f5 reference_telugu_f5
+      - name: Test Gradio UI schema
+        run: docker run --rm reference-telugu-f5 python -c 'import app; assert app.demo.get_api_info(); print("SCHEMA_PASS")'
+      - name: Test Telugu voice conditioning model loads
+        run: |
+          docker run --rm -i reference-telugu-f5 python - <<'PY'
+          import app
+          model,vocoder,device=app.load_models()
+          print("F5_MODEL_LOAD_PASS",device,flush=True)
+          PY
+      - name: Test actual Telugu generation with synthesized speaking reference
+        run: |
+          docker run --rm -i reference-telugu-f5 python - <<'PY'
+          import pathlib,subprocess,app
+          ref=pathlib.Path("/tmp/test_reference.wav")
+          subprocess.run(["espeak-ng","-v","te","-s","120","-w",str(ref),
+             "నమస్కారం. నేను చిన్న కథ చెబుతాను. ఇది నా మాట్లాడే స్వరం."],check=True)
+          generated,_,status=app.generate(
+              "అమ్మా! నాకు ఒక కథ చెప్పు!",str(ref),0.0,8.0,
+              "నమస్కారం. నేను చిన్న కథ చెబుతాను. ఇది నా మాట్లాడే స్వరం.",8,1.0,True)
+          assert pathlib.Path(generated).stat().st_size>4000
+          print("F5_REFERENCE_TELUGU_AUDIO_PASS",status,flush=True)
+          PY
+      - name: Install HF deployment client
+        run: python -m pip install "huggingface_hub==0.36.0"
+      - name: Deploy only after inference passes
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: python reference_telugu_f5/deploy.py
