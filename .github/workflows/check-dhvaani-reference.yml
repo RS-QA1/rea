@@ -36,7 +36,7 @@ jobs:
           PY
       - name: Build the existing DhVaani application
         run: docker build -t dhvaani-test reference_voice_studio
-      - name: Generate Telugu from a synthetic reference
+      - name: Check complete multi-sentence Telugu dialogue from a synthetic reference
         env:
           HF_TOKEN: ${{ secrets.HF_MODEL_TOKEN || secrets.HF_TOKEN }}
         run: |
