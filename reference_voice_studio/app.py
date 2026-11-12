@@ -64,10 +64,13 @@ def check_audio(path):
 def get_recognizer():
     from faster_whisper import WhisperModel
 
-    return WhisperModel("small", device="cpu", compute_type="int8", cpu_threads=2)
+    return WhisperModel(
+        "itsskofficial/livewhisper-te-medium",
+        device="cpu", compute_type="int8", cpu_threads=2,
+    )
 
 
-def transcribe(path, language=None):
+def transcribe(path, language="te"):
     samples, rate = sf.read(str(path), dtype="float32")
     from scipy.signal import resample_poly
 
