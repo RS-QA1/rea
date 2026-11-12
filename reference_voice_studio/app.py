@@ -34,9 +34,12 @@ def get_model():
             "https://huggingface.co/ARTPARK-IISc/DhVaani-0.5 "
             "and add a read-only HF_MODEL_TOKEN under this Space's Settings > Secrets."
         )
+    # DhVaani downloads backend files internally without forwarding token=.
+    os.environ["HF_TOKEN"] = token
     try:
         model = AutoModel.from_pretrained(
             MODEL_ID, trust_remote_code=True, token=token,
+            revision="582a342b3eb310f973a8e0af06798b453234b6ab",
         ).to(device).eval()
     except Exception as exc:
         raise RuntimeError(
