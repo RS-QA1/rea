@@ -62,6 +62,24 @@ def make_reference(video, clip_start, duration, folder):
         raise ValueError("The selected voice sample is too short.")
     return ref
 
+@lru_cache(maxsize=1)
+def speech_recognizer():
+    # CTranslate2 reads WAV without TorchCodec / transformers AudioDecoder.
+    from faster_whisper import WhisperModel
+    return WhisperModel("base", device="cpu", compute_type="int8")
+
+def transcribe_reference(reference):
+    segments, info = speech_recognizer().transcribe(
+        str(reference), beam_size=2, vad_filter=False,
+        condition_on_previous_text=False, task="transcribe"
+    )
+    words = " ".join(segment.text.strip() for segment in segments).strip()
+    if not words:
+        raise ValueError("No speech detected in the selected reference section. "
+                         "Choose a 5–10 second segment with clear speaking.")
+    print("REFERENCE_TRANSCRIPTION_LANGUAGE", info.language, flush=True)
+    return words
+
 def generate(dialogue, video, start, duration, transcript, steps, speed, authorized):
     if not authorized:
         raise gr.Error("Confirm you have permission to synthesize this speaker's voice; for a minor, guardian permission is needed.")
@@ -92,8 +110,11 @@ def generate(dialogue, video, start, duration, transcript, steps, speed, authori
             folder = Path(temp)
             reference = make_reference(video, float(start), float(duration), folder)
             ref_text = (transcript or "").strip()
-            # The upstream library can attempt automatic transcription when empty;
-            # accuracy for noisy/foreign-language reference speech is not guaranteed.
+            auto_transcribed = not bool(ref_text)
+            if auto_transcribed:
+                # Bypass F5-TTS's transformers Whisper path, which can invoke
+                # TorchCodec AudioDecoder. Use faster-whisper for automatic text.
+                ref_text = transcribe_reference(reference)
             ref_audio, ref_text = preprocess_ref_audio_text(str(reference), ref_text)
             model, vocoder, device = load_models()
             wav, sr, _ = infer_process(
@@ -109,7 +130,9 @@ def generate(dialogue, video, start, duration, transcript, steps, speed, authori
         return str(out), str(out), (
             "Generated Telugu with F5 voice conditioning from the video. "
             "Similarity to the original voice is not guaranteed; check the result. "
-            "A 5–10 second single-speaker section and accurate reference transcript help."
+            "A 5–10 second single-speaker section and accurate reference transcript help. "
+            + ("The reference was auto-transcribed; verify its words for the best voice match."
+               if auto_transcribed else "Provided reference transcript used.")
         )
     except gr.Error:
         raise
@@ -133,7 +156,7 @@ with gr.Blocks(title="Telugu Child Voice Reference Studio") as demo:
             duration = gr.Slider(3, 12, value=8, step=0.5, label="Speaking-reference length")
             transcript = gr.Textbox(
                 label="Exact words spoken in the reference (recommended)",
-                placeholder="Leave empty for automatic transcription (may be inaccurate)",
+                placeholder="Leave blank for free automatic transcription (may be inaccurate; please review)",
                 lines=2,
             )
             authorized = gr.Checkbox(label="I have permission to synthesize this voice, including guardian consent if applicable")
