@@ -38,13 +38,13 @@ jobs:
         run: docker build -t dhvaani-test reference_voice_studio
       - name: Generate Telugu from a synthetic reference
         env:
-          HF_MODEL_TOKEN: ${{ secrets.HF_MODEL_TOKEN || secrets.HF_TOKEN }}
+          HF_TOKEN: ${{ secrets.HF_MODEL_TOKEN || secrets.HF_TOKEN }}
         run: |
           sudo apt-get install -y espeak-ng
           mkdir -p test-audio
           chmod 777 test-audio
           espeak-ng -v te -s 110 -w test-audio/reference.wav 'నమస్కారం. నేను మీకు ఒక చిన్న కథ చెబుతాను.'
-          docker run --rm -i -e HF_MODEL_TOKEN -v "$PWD/test-audio:/test-audio" dhvaani-test python - <<'PY'
+          docker run --rm -i -e HF_TOKEN -v "$PWD/test-audio:/test-audio" dhvaani-test python - <<'PY'
           import shutil
           import soundfile as sf
           import numpy as np
