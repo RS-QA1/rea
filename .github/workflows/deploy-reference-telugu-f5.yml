@@ -49,6 +49,15 @@ jobs:
               "నమస్కారం. నేను చిన్న కథ చెబుతాను. ఇది నా మాట్లాడే స్వరం.",8,1.0,True)
           assert pathlib.Path(generated).stat().st_size>4000
           print("F5_REFERENCE_TELUGU_AUDIO_PASS",status,flush=True)
+          # Exercise the missing-transcript path that raised AudioDecoder.
+          auto_text=app.transcribe_reference(ref)
+          assert len(auto_text.strip())>0, "Automatic transcription returned empty"
+          print("F5_AUTOTRANSCRIBE_PASS",auto_text[:80],flush=True)
+          generated2,_,status2=app.generate(
+              "అమ్మా! ఎలా ఉన్నావు?",str(ref),0.0,8.0,
+              "",8,1.0,True)
+          assert pathlib.Path(generated2).stat().st_size>4000
+          print("F5_BLANK_TRANSCRIPT_AUDIO_PASS",status2,flush=True)
           PY
       - name: Install HF deployment client
         run: python -m pip install "huggingface_hub==0.36.0"
