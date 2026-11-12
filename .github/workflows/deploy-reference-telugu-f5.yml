@@ -59,6 +59,27 @@ jobs:
           assert pathlib.Path(generated2).stat().st_size>4000
           print("F5_BLANK_TRANSCRIPT_AUDIO_PASS",status2,flush=True)
           PY
+      - name: Validate MP4 with blank transcript end-to-end in Docker
+        run: |
+          docker run --rm -i reference-telugu-f5 python - <<'PY'
+          import pathlib, subprocess, app, wave
+          audio=pathlib.Path("/tmp/speech_for_video.wav")
+          video=pathlib.Path("/tmp/reference_video.mp4")
+          phrase="నమస్కారం. నేను చిన్న కథ చెబుతాను. ఇది నా మాట్లాడే స్వరం."
+          subprocess.run(["espeak-ng","-v","te","-s","120","-w",str(audio),phrase],check=True)
+          subprocess.run(["ffmpeg","-hide_banner","-loglevel","error","-y",
+            "-f","lavfi","-i","color=c=black:s=320x240:r=10",
+            "-i",str(audio),"-c:v","libx264","-c:a","aac",
+            "-t","8","-shortest",str(video)],check=True)
+          transcription=app.transcribe_reference(audio)
+          assert transcription.strip(), "Automatic transcription empty"
+          generated,_,status=app.generate("అమ్మా! నువ్వు ఎలా ఉన్నావు?",str(video),
+                                  0.0,8.0,"",8,1.0,True)
+          with wave.open(generated,"rb") as wav:
+              length=wav.getnframes()/wav.getframerate()
+          assert length>0.5
+          print("VIDEO_BLANK_TRANSCRIPT_TELUGU_PASS",round(length,2),status,flush=True)
+          PY
       - name: Install HF deployment client
         run: python -m pip install "huggingface_hub==0.36.0"
       - name: Deploy only after inference passes
