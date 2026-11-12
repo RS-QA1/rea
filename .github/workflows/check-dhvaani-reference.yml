@@ -46,6 +46,20 @@ jobs:
           espeak-ng -v te -s 110 -w test-audio/reference.wav 'నమస్కారం. నేను మీకు ఒక చిన్న కథ చెబుతాను.'
           docker run --rm -i -e HF_TOKEN -v "$PWD/test-audio:/test-audio" dhvaani-test python - <<'PY'
           import shutil
+          import subprocess
+          import sys
+          from huggingface_hub import hf_hub_download
+
+          requirements = hf_hub_download(
+              "ARTPARK-IISc/DhVaani-0.5", "requirements.txt",
+              revision="582a342b3eb310f973a8e0af06798b453234b6ab",
+          )
+          subprocess.run([
+              sys.executable, "-m", "pip", "install", "--user",
+              "-r", requirements, "tensorboard==2.19.0",
+          ], check=True)
+          import site
+          site.addsitedir(site.getusersitepackages())
           import soundfile as sf
           import numpy as np
           from app import generate
