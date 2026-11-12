@@ -6,6 +6,8 @@ import subprocess
 import tempfile
 import uuid
 from functools import lru_cache
+from difflib import SequenceMatcher
+import unicodedata
 
 import gradio as gr
 import numpy as np
@@ -58,18 +60,54 @@ def check_audio(path):
         raise gr.Error(f"Reference is {duration:.1f}s. Use 5–15 seconds of clean speaking audio.")
     return duration
 
+@lru_cache(maxsize=1)
+def get_recognizer():
+    from faster_whisper import WhisperModel
+
+    return WhisperModel("small", device="cpu", compute_type="int8", cpu_threads=2)
+
+
+def transcribe(path, language=None):
+    samples, rate = sf.read(str(path), dtype="float32")
+    from scipy.signal import resample_poly
+
+    if rate != 16000:
+        samples = resample_poly(samples, 16000, rate)
+    segments, _ = get_recognizer().transcribe(
+        samples, language=language, beam_size=5, condition_on_previous_text=False,
+    )
+    return " ".join(segment.text.strip() for segment in segments).strip()
+
+
+def comparable_text(text):
+    return "".join(
+        character for character in unicodedata.normalize("NFC", text).casefold()
+        if unicodedata.category(character)[0] in "LMN"
+    )
+
+
+def matches_dialogue(expected, recognized):
+    expected = comparable_text(expected)
+    recognized = comparable_text(recognized)
+    if not recognized or not any("\u0c05" <= c <= "\u0c7f" for c in recognized):
+        return False
+    if len(expected) < 12:
+        return expected == recognized
+    return SequenceMatcher(None, expected, recognized, autojunk=False).ratio() >= 0.85
+
+
 def generate(text, reference_audio, reference_text, expression, speed, steps, permission,
              start_seconds=0, clip_seconds=0):
     if not permission:
         raise gr.Error("Confirm that you have the speaker's permission to use their voice.")
     if not text or not text.strip():
         raise gr.Error("Enter Telugu dialogue.")
+    if not any("\u0c05" <= character <= "\u0c7f" for character in text):
+        return None, None, "Enter your new dialogue in Telugu script."
     if len(text) > 500:
         raise gr.Error("Use up to 500 characters per generation during testing.")
     if not reference_audio:
         raise gr.Error("Upload an audio or video file with clear speech.")
-    if not reference_text or not reference_text.strip():
-        raise gr.Error("Enter the exact words spoken in the selected reference segment.")
     if pathlib.Path(reference_audio).stat().st_size > 100_000_000:
         raise gr.Error("Reference upload exceeds 100 MB.")
     if not all(math.isfinite(value) for value in (start_seconds, clip_seconds)):
@@ -90,26 +128,49 @@ def generate(text, reference_audio, reference_text, expression, speed, steps, pe
         if proc.returncode:
             raise gr.Error("Reference conversion failed: " + proc.stderr[-250:])
         duration = check_audio(ref)
+        reference_text = (reference_text or "").strip()
+        if not reference_text:
+            try:
+                reference_text = transcribe(ref)
+            except Exception:
+                return None, None, "Automatic transcription could not run. Enter the reference words and try again."
+            if not reference_text:
+                return None, None, "Reference speech could not be transcribed. Select clear speech or enter the spoken words."
         model, device = get_model()
         import torch
-        with torch.inference_mode():
-            waveform = model.synthesize(
-                text=text.strip(), prompt_wav=str(ref), prompt_text=reference_text.strip(),
-                num_step=int(steps), speed=float(speed) * style_speed,
-            )
-        if hasattr(waveform, "detach"):
-            waveform = waveform.detach().cpu().numpy()
-        signal = np.asarray(waveform, dtype=np.float32).flatten()
-        if not signal.size or not np.isfinite(signal).all():
-            raise gr.Error("Voice model returned invalid audio.")
-        signal = np.clip(signal * style_gain, -0.96, 0.96)
-        output = ROOT / f"{uuid.uuid4().hex}.wav"
-        sf.write(str(output), signal, int(model.sampling_rate))
-    return str(output), str(output), (
-        f"Generated from a {duration:.1f}s spoken reference using DhVaani on {device}. "
-        f"{expression} is a light speed adjustment, not guaranteed emotional acting. "
-        "Voice similarity and childlike tone must be assessed by listening."
+
+        candidate = pathlib.Path(tmp) / "candidate.wav"
+        recognized = ""
+        for inference_steps in (int(steps), 16):
+            with torch.inference_mode():
+                waveform = model.synthesize(
+                    text=text.strip(), prompt_wav=str(ref), prompt_text=reference_text,
+                    num_step=inference_steps, speed=float(speed) * style_speed,
+                )
+            if hasattr(waveform, "detach"):
+                waveform = waveform.detach().cpu().numpy()
+            signal = np.asarray(waveform, dtype=np.float32).flatten()
+            if not signal.size or not np.isfinite(signal).all():
+                continue
+            sf.write(str(candidate), np.clip(signal * style_gain, -0.96, 0.96), int(model.sampling_rate))
+            try:
+                recognized = transcribe(candidate, language="te")
+            except Exception:
+                return None, None, "The Telugu speech checker could not run. Please try again."
+            if matches_dialogue(text, recognized):
+                output = ROOT / f"{uuid.uuid4().hex}.wav"
+                candidate.replace(output)
+                return str(output), str(output), (
+                    f"Telugu transcript check passed. Recognized: {recognized}\n"
+                    f"Reference: {duration:.1f}s · DhVaani on {device}. "
+                    "Listen to compare the generated voice with the reference."
+                )
+    return None, None, (
+        "The generated speech did not match the requested Telugu dialogue after two attempts. "
+        f"Recognized: {recognized or 'no clear speech'}. "
+        "Check the reference transcript and use a short, clear speaking segment."
     )
+
 
 with gr.Blocks(title="Telugu Reference Voice Studio") as demo:
     gr.Markdown("# Telugu Reference Voice Studio — experimental")
@@ -129,7 +190,7 @@ with gr.Blocks(title="Telugu Reference Voice Studio") as demo:
                 clip_seconds = gr.Number(value=0, minimum=0, maximum=30,
                                          label="Reference length (0 = whole short clip)")
             transcript = gr.Textbox(label="2. Exact words spoken in the selected segment",
-                                    lines=2, placeholder="Type the reference words as spoken")
+                                    lines=2, placeholder="Type the words as spoken, or leave blank to transcribe automatically")
             permission = gr.Checkbox(label="I have permission to synthesize speech in this speaker's voice")
             dialogue = gr.Textbox(label="3. Telugu dialogue to generate", lines=5,
                 value="అమ్మా! నేను ఒక చిన్న డ్రాగన్‌ని చూశాను!")
@@ -141,7 +202,7 @@ with gr.Blocks(title="Telugu Reference Voice Studio") as demo:
         with gr.Column():
             preview = gr.Audio(label="Listen", type="filepath")
             download = gr.File(label="Download WAV")
-            status = gr.Textbox(label="Model details", interactive=False)
+            status = gr.Textbox(label="Generation status", interactive=False)
     button.click(
         generate,
         [dialogue, reference, transcript, mood, speed, steps, permission, start_seconds, clip_seconds],
