@@ -71,7 +71,23 @@ def generate(dialogue, video, start, duration, transcript, steps, speed, authori
     if not any(0x0C00 <= ord(c) <= 0x0C7F for c in dialogue):
         raise gr.Error("This checkpoint is Telugu-focused; please enter Telugu-script dialogue.")
     try:
+        import torch
+        import torchaudio
         from f5_tts.infer.utils_infer import infer_process, preprocess_ref_audio_text
+
+        # F5 utils_infer calls torchaudio.load(), which in recent TorchAudio
+        # versions delegates to TorchCodec's AudioDecoder. TorchCodec 0.1.x
+        # lacks that interface on PyTorch 2.5.1. All input has already been
+        # decoded to mono PCM WAV by FFmpeg, so read it with libsndfile.
+        def load_pcm_wav(path, *args, **kwargs):
+            if args or kwargs:
+                raise ValueError("Only standard WAV reads are supported here.")
+            data, sample_rate = sf.read(
+                str(path), dtype="float32", always_2d=True
+            )
+            return torch.from_numpy(np.ascontiguousarray(data.T)), sample_rate
+        torchaudio.load = load_pcm_wav
+
         with tempfile.TemporaryDirectory(dir=HOME) as temp:
             folder = Path(temp)
             reference = make_reference(video, float(start), float(duration), folder)
