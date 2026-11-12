@@ -1,5 +1,6 @@
 """Experimental Telugu zero-shot reference-voice studio (DhVaani)."""
 import os
+import math
 import pathlib
 import subprocess
 import tempfile
@@ -50,39 +51,46 @@ def get_model():
         ) from exc
     return model, device
 
-def check_audio(path, transcript):
-    if not path:
-        raise gr.Error("Upload a 5–15 second sample of the voice SPEAKING, not just laughing.")
-    if not transcript or not transcript.strip():
-        raise gr.Error("Type the exact words spoken in the uploaded reference.")
-    if pathlib.Path(path).stat().st_size > 15_000_000:
-        raise gr.Error("Reference is too large (15 MB maximum).")
+def check_audio(path):
     with sf.SoundFile(path) as f:
         duration = len(f) / f.samplerate
     if duration < 3 or duration > 30:
         raise gr.Error(f"Reference is {duration:.1f}s. Use 5–15 seconds of clean speaking audio.")
     return duration
 
-def generate(text, reference_audio, reference_text, expression, speed, steps, permission):
+def generate(text, reference_audio, reference_text, expression, speed, steps, permission,
+             start_seconds=0, clip_seconds=0):
     if not permission:
         raise gr.Error("Confirm that you have the speaker's permission to use their voice.")
     if not text or not text.strip():
         raise gr.Error("Enter Telugu dialogue.")
     if len(text) > 500:
         raise gr.Error("Use up to 500 characters per generation during testing.")
-    duration = check_audio(reference_audio, reference_text)
-    model, device = get_model()
+    if not reference_audio:
+        raise gr.Error("Upload an audio or video file with clear speech.")
+    if not reference_text or not reference_text.strip():
+        raise gr.Error("Enter the exact words spoken in the selected reference segment.")
+    if pathlib.Path(reference_audio).stat().st_size > 100_000_000:
+        raise gr.Error("Reference upload exceeds 100 MB.")
+    if not all(math.isfinite(value) for value in (start_seconds, clip_seconds)):
+        raise gr.Error("Enter valid reference times.")
+    if start_seconds < 0 or (clip_seconds != 0 and not 3 <= clip_seconds <= 30):
+        raise gr.Error("Use a nonnegative start and a clip length of 3–30 seconds.")
     style_speed, style_gain = EXPRESSIONS[expression]
     # Does not pretend to generate natural emotion or giggling natively.
     with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
         ref = pathlib.Path(tmp) / "reference.wav"
         proc = subprocess.run(
-            ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-             "-i", str(reference_audio), "-ac", "1", "-ar", "24000", str(ref)],
+            ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
+             "-ss", str(start_seconds), "-i", str(reference_audio),
+             "-map", "0:a:0", "-vn", "-t", str(clip_seconds or 31),
+             "-ac", "1", "-ar", "24000", "-c:a", "pcm_s16le", str(ref)],
             capture_output=True, text=True, timeout=30,
         )
         if proc.returncode:
             raise gr.Error("Reference conversion failed: " + proc.stderr[-250:])
+        duration = check_audio(ref)
+        model, device = get_model()
         import torch
         with torch.inference_mode():
             waveform = model.synthesize(
@@ -114,10 +122,14 @@ with gr.Blocks(title="Telugu Reference Voice Studio") as demo:
     )
     with gr.Row():
         with gr.Column():
-            reference = gr.Audio(label="1. Upload reference SPEECH (5–15 sec)",
-                                 sources=["upload"], type="filepath")
-            transcript = gr.Textbox(label="2. Exact transcript of the reference recording",
-                                    lines=2, placeholder="The exact words spoken in that recording")
+            reference = gr.File(label="1. Upload reference audio or video",
+                                file_types=["audio", "video"], type="filepath")
+            with gr.Row():
+                start_seconds = gr.Number(value=0, minimum=0, label="Reference start (seconds)")
+                clip_seconds = gr.Number(value=0, minimum=0, maximum=30,
+                                         label="Reference length (0 = whole short clip)")
+            transcript = gr.Textbox(label="2. Exact words spoken in the selected segment",
+                                    lines=2, placeholder="Type the reference words as spoken")
             permission = gr.Checkbox(label="I have permission to synthesize speech in this speaker's voice")
             dialogue = gr.Textbox(label="3. Telugu dialogue to generate", lines=5,
                 value="అమ్మా! నేను ఒక చిన్న డ్రాగన్‌ని చూశాను!")
@@ -130,8 +142,12 @@ with gr.Blocks(title="Telugu Reference Voice Studio") as demo:
             preview = gr.Audio(label="Listen", type="filepath")
             download = gr.File(label="Download WAV")
             status = gr.Textbox(label="Model details", interactive=False)
-    button.click(generate, [dialogue, reference, transcript, mood, speed, steps, permission],
-                 [preview, download, status], api_name="generate_reference_voice")
+    button.click(
+        generate,
+        [dialogue, reference, transcript, mood, speed, steps, permission, start_seconds, clip_seconds],
+        [preview, download, status],
+        api_name="generate_reference_voice",
+    )
     gr.Markdown("Model: ARTPARK-IISc/DhVaani-0.5 · CC BY-NC 4.0, "
                 "subject to the rights of reference recordings and training-data licenses. "
                 "Model requires accepting gated access conditions and a read-only "
