@@ -1,5 +1,5 @@
 name: Validate Telugu voice extraction from video
-# Regression: SoundFile decoder replaces incompatible TorchCodec AudioDecoder
+# Regression: confirm stable Docker release reads MP4 without TorchCodec AudioDecoder
 on:
   push:
     branches: [child-voice-studio-v01]
