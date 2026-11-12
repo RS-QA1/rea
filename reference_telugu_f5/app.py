@@ -80,6 +80,44 @@ def transcribe_reference(reference):
     print("REFERENCE_TRANSCRIPTION_LANGUAGE", info.language, flush=True)
     return words
 
+def median_voiced_pitch(audio, sample_rate):
+    """Estimate median fundamental frequency from periodic, audible frames."""
+    from scipy.signal import correlate, resample_poly
+
+    if sample_rate != 16000:
+        audio = resample_poly(audio, 16000, sample_rate)
+    frame_size = 800
+    lags = np.arange(25, 229)
+    pitches = []
+    min_level = max(0.001, float(np.max(np.abs(audio), initial=0)) * 0.025)
+    for offset in range(0, len(audio) - frame_size, 320):
+        frame = audio[offset:offset + frame_size]
+        if np.sqrt(np.mean(frame ** 2)) < min_level:
+            continue
+        frame = frame - frame.mean()
+        forward = np.cumsum(frame ** 2)
+        backward = np.cumsum(frame[::-1] ** 2)
+        norm = np.sqrt(forward[frame_size - 1 - lags] *
+                       backward[frame_size - 1 - lags] + 1e-12)
+        periodicity = correlate(frame, frame, method="fft")[frame_size - 1 + lags] / norm
+        peaks = np.flatnonzero(
+            (periodicity[1:-1] > periodicity[:-2]) &
+            (periodicity[1:-1] > periodicity[2:])
+        ) + 1
+        if peaks.size:
+            threshold = max(0.62, 0.91 * periodicity[peaks].max())
+            candidates = peaks[periodicity[peaks] >= threshold]
+            if candidates.size:
+                pitches.append(16000 / lags[candidates[0]])
+    return float(np.median(pitches)) if len(pitches) >= 15 else None
+
+
+def pitch_difference(reference_pitch, generated_pitch):
+    if reference_pitch is None or generated_pitch is None:
+        return None
+    return abs(12 * np.log2(generated_pitch / reference_pitch))
+
+
 def generate(dialogue, video, start, duration, transcript, steps, speed, authorized):
     if not authorized:
         raise gr.Error("Confirm you have permission to synthesize this speaker's voice; for a minor, guardian permission is needed.")
@@ -117,22 +155,51 @@ def generate(dialogue, video, start, duration, transcript, steps, speed, authori
                 ref_text = transcribe_reference(reference)
             ref_audio, ref_text = preprocess_ref_audio_text(str(reference), ref_text)
             model, vocoder, device = load_models()
-            wav, sr, _ = infer_process(
-                ref_audio, ref_text, dialogue, model, vocoder,
-                mel_spec_type="vocos", device=device,
-                nfe_step=int(steps), speed=float(speed),
-            )
-            audio = np.asarray(wav, dtype=np.float32).reshape(-1)
-            if audio.size < sr // 2 or not np.isfinite(audio).all():
-                raise RuntimeError("Model returned empty or invalid audio.")
+            def synthesize(inference_steps):
+                wav, sample_rate, _ = infer_process(
+                    ref_audio, ref_text, dialogue, model, vocoder,
+                    mel_spec_type="vocos", device=device,
+                    nfe_step=inference_steps, speed=float(speed),
+                )
+                samples = np.asarray(wav, dtype=np.float32).reshape(-1)
+                if samples.size < sample_rate // 2 or not np.isfinite(samples).all():
+                    raise RuntimeError("Model returned empty or invalid audio.")
+                return samples, sample_rate
+
+            reference_samples, reference_rate = sf.read(str(reference), dtype="float32")
+            reference_pitch = median_voiced_pitch(reference_samples, reference_rate)
+            audio, sr = synthesize(int(steps))
+            generated_pitch = median_voiced_pitch(audio, sr)
+            difference = pitch_difference(reference_pitch, generated_pitch)
+            if difference is not None and difference > 6:
+                try:
+                    retry_audio, retry_rate = synthesize(32)
+                    retry_pitch = median_voiced_pitch(retry_audio, retry_rate)
+                    retry_difference = pitch_difference(reference_pitch, retry_pitch)
+                    if retry_difference is not None and retry_difference < difference:
+                        audio, sr = retry_audio, retry_rate
+                        generated_pitch, difference = retry_pitch, retry_difference
+                except Exception as exc:
+                    print(f"Voice pitch retry failed: {type(exc).__name__}", flush=True)
+            if difference is None:
+                quality_status = "Pitch comparison unavailable. Listen to the reference and preview before using it."
+            elif difference > 6:
+                quality_status = (
+                    f"Voice mismatch: estimated reference pitch {reference_pitch:.0f} Hz, "
+                    f"preview pitch {generated_pitch:.0f} Hz. The model could not match "
+                    "the reference pitch after retrying. Treat this WAV as a preview."
+                )
+            else:
+                quality_status = (
+                    f"Estimated pitch: reference {reference_pitch:.0f} Hz, "
+                    f"preview {generated_pitch:.0f} Hz. Listen to assess voice similarity."
+                )
             out = HOME / (uuid.uuid4().hex + ".wav")
             sf.write(str(out), np.clip(audio, -0.97, 0.97), sr)
         return str(out), str(out), (
-            "Generated Telugu with F5 voice conditioning from the video. "
-            "Similarity to the original voice is not guaranteed; check the result. "
-            "A 5–10 second single-speaker section and accurate reference transcript help. "
-            + ("The reference was auto-transcribed; verify its words for the best voice match."
-               if auto_transcribed else "Provided reference transcript used.")
+            quality_status + "\n" +
+            (f"Automatic reference transcript: {ref_text.strip()}"
+             if auto_transcribed else "Provided reference transcript used.")
         )
     except gr.Error:
         raise
