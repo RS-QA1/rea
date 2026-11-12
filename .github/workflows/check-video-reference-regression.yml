@@ -52,4 +52,24 @@ jobs:
               duration=f.getnframes()/f.getframerate()
           assert duration>0.5
           print("HOSTED_VIDEO_REFERENCE_PASS",round(duration,2),flush=True)
+          # The previously failing path: leave reference transcript empty.
+          # Robotic eSpeak Telugu may be unintelligible to Whisper; either
+          # generate audio or fail clearly with "No speech detected".
+          try:
+              blank=client.predict(
+                  "అమ్మా! ఎలా ఉన్నావు?",
+                  handle_file(str(mp4)),None,False,0,8,
+                  "",8,1.0,True,
+                  api_name="/generate_telugu_reference_voice"
+              )
+              response=blank[0] if isinstance(blank,(tuple,list)) else blank
+              if isinstance(response,dict):
+                  response=response.get("path") or response.get("name")
+              assert Path(str(response)).is_file()
+              print("HOSTED_BLANK_TRANSCRIPT_GENERATION_PASS",flush=True)
+          except Exception as exc:
+              error=str(exc)
+              assert "AudioDecoder" not in error and "torchcodec" not in error.lower(),error
+              print("HOSTED_BLANK_TRANSCRIPT_NO_CODEC_ERROR",type(exc).__name__,error[:250],flush=True)
+
           PY
