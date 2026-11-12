@@ -70,6 +70,8 @@ jobs:
               "నమస్కారం. నేను మీకు ఒక చిన్న కథ చెబుతాను.",
               "Natural", 1.0, 12, True,
           )
+          print(status, flush=True)
+          assert preview, status
           samples, rate = sf.read(preview)
           assert len(samples) > rate // 2 and np.isfinite(samples).all()
           assert np.max(np.abs(samples)) > 0.01
