@@ -1,0 +1,36 @@
+name: Compare Telugu child voice samples
+on:
+  push:
+    branches: [child-voice-studio-v01]
+    paths: [.github/workflows/compare-telugu-child-voices.yml]
+permissions:
+  contents: read
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t telugu-child-voice telugu_child_voice
+      - name: Render three child voice candidates
+        run: |
+          mkdir candidates
+          docker run --rm -i --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/candidates:/samples" telugu-child-voice python - <<'PY'
+          import shutil
+          from app import VOICES, generate
+
+          dialogue = "అమ్మా! ఇటు చూడు! మన తోటలో ఓ చిన్న డ్రాగన్ ఉంది!"
+          voices = {
+              "child-moderate": "child, moderate pitch",
+              "girl-moderate": "female, child, moderate pitch",
+              "boy-moderate": "male, child, moderate pitch",
+          }
+          VOICES.update(voices)
+          for voice in voices:
+              wav, _ = generate(dialogue, voice)
+              shutil.copyfile(wav, f"/samples/{voice}.wav")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: telugu-child-voice-candidates
+          path: candidates/*.wav
