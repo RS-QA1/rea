@@ -12,7 +12,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - run: docker build -t telugu-child-voice telugu_child_voice
+      - name: Build the OmniVoice CPU image
+        run: docker build -t telugu-child-voice telugu_child_voice
       - name: Generate both voices from the same Telugu line
         run: |
           mkdir samples
