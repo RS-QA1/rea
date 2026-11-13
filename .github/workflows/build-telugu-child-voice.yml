@@ -1,0 +1,42 @@
+name: Build Telugu Child Voice
+on:
+  push:
+    branches: [child-voice-studio-v01]
+    paths: [telugu_child_voice/**, .github/workflows/build-telugu-child-voice.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t telugu-child-voice telugu_child_voice
+      - name: Generate both voices from the same Telugu line
+        run: |
+          mkdir samples
+          docker run --rm -i --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/samples:/samples" telugu-child-voice python - <<'PY'
+          import shutil
+          from app import generate
+          for voice in ("Girl", "Boy"):
+              path, _ = generate("అమ్మా! ఇటు చూడు! మన తోటలో ఓ చిన్న డ్రాగన్ ఉంది!", voice)
+              shutil.copyfile(path, f"/samples/{voice.lower()}.wav")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: telugu-child-voice-samples
+          path: samples/*.wav
+      - name: Deploy independent Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          pip install huggingface_hub
+          python - <<'PY'
+          from huggingface_hub import HfApi
+          api = HfApi()
+          name = api.whoami()["name"] + "/telugu-child-voice-omnivoice"
+          api.create_repo(name, repo_type="space", space_sdk="docker", exist_ok=True)
+          api.upload_folder(repo_id=name, repo_type="space", folder_path="telugu_child_voice")
+          print(f"https://huggingface.co/spaces/{name}")
+          PY
